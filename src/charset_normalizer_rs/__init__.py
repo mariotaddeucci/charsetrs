@@ -4,8 +4,16 @@ Charset Normalizer RS - A Python library with Rust bindings for charset detectio
 
 from charset_normalizer_rs._internal import CharsetMatch
 from charset_normalizer_rs._internal import from_path as _from_path_internal
+from charset_normalizer_rs._internal import from_path_stream as _from_path_stream_internal
 
-__all__ = ["from_path", "CharsetMatch", "detect_encoding", "read_file_with_encoding"]
+__all__ = [
+    "from_path",
+    "from_path_stream",
+    "CharsetMatch",
+    "detect_encoding",
+    "detect_encoding_stream",
+    "read_file_with_encoding",
+]
 __version__ = "0.1.0"
 
 
@@ -38,8 +46,42 @@ def from_path(path):
     Returns a CharsetMatches object with a best() method.
 
     Compatible with charset_normalizer's from_path function.
+
+    Note: This function loads the entire file into memory.
+    For large files, consider using from_path_stream() instead.
     """
     match = _from_path_internal(str(path))
+    return CharsetMatches(match)
+
+
+def from_path_stream(path, max_sample_size=None):
+    """
+    Detect charset from a file path using streaming (memory efficient).
+    Returns a CharsetMatches object with a best() method.
+
+    This function is optimized for large files and uses minimal memory.
+    It reads only a sample of the file (up to 1MB by default) to detect encoding,
+    making it suitable for analyzing very large files on systems with
+    limited memory.
+
+    Args:
+        path: Path to the file to detect encoding
+        max_sample_size: Maximum number of bytes to read from the file (default: 1MB)
+                        Larger values may improve accuracy but use more memory.
+                        Examples: 512*1024 (512KB), 2*1024*1024 (2MB)
+
+    Returns:
+        CharsetMatches: Object with best() method returning the detected encoding
+
+    Example:
+        >>> result = from_path_stream('/path/to/large/file.txt')
+        >>> print(result.best().encoding)
+        'utf_8'
+
+        >>> # Use 2MB sample for better accuracy
+        >>> result = from_path_stream('/path/to/file.txt', max_sample_size=2*1024*1024)
+    """
+    match = _from_path_stream_internal(str(path), max_sample_size)
     return CharsetMatches(match)
 
 
@@ -48,6 +90,9 @@ def detect_encoding(path):
     Detect the encoding of a file.
     Returns the encoding name as a string.
 
+    Note: This function loads the entire file into memory.
+    For large files, consider using detect_encoding_stream() instead.
+
     Args:
         path: Path to the file to detect encoding
 
@@ -55,6 +100,37 @@ def detect_encoding(path):
         str: The detected encoding name (e.g., 'utf_8', 'cp1252')
     """
     match = _from_path_internal(str(path))
+    return match.encoding
+
+
+def detect_encoding_stream(path, max_sample_size=None):
+    """
+    Detect the encoding of a file using streaming (memory efficient).
+    Returns the encoding name as a string.
+
+    This function is optimized for large files and uses minimal memory.
+    It reads only a sample of the file (up to 1MB by default) to detect encoding,
+    making it suitable for analyzing very large files on systems with
+    limited memory.
+
+    Args:
+        path: Path to the file to detect encoding
+        max_sample_size: Maximum number of bytes to read from the file (default: 1MB)
+                        Larger values may improve accuracy but use more memory.
+                        Examples: 512*1024 (512KB), 2*1024*1024 (2MB)
+
+    Returns:
+        str: The detected encoding name (e.g., 'utf_8', 'cp1252')
+
+    Example:
+        >>> encoding = detect_encoding_stream('/path/to/8gb/file.txt')
+        >>> print(encoding)
+        'utf_8'
+
+        >>> # Use only 512KB sample for minimal memory usage
+        >>> encoding = detect_encoding_stream('/path/to/file.txt', max_sample_size=512*1024)
+    """
+    match = _from_path_stream_internal(str(path), max_sample_size)
     return match.encoding
 
 

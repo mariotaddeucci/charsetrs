@@ -1,8 +1,12 @@
 use pyo3::prelude::*;
 use pyo3::exceptions::PyIOError;
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, BufReader};
 use std::path::Path;
+
+// Constantes para controle de memória
+const CHUNK_SIZE: usize = 8192; // 8KB por chunk
+const MAX_SAMPLE_SIZE: usize = 1024 * 1024; // 1MB de amostra máxima para análise
 
 // Normalize encoding name to Python codec format
 fn normalize_encoding_name(encoding: &str) -> String {
@@ -387,10 +391,218 @@ fn from_path(file_path: String) -> PyResult<CharsetMatch> {
     })
 }
 
+/// Detects encoding from a file using streaming (memory efficient for large files)
+/// Reads only a sample of the file instead of loading everything into memory
+#[pyfunction]
+#[pyo3(signature = (file_path, max_sample_size=None))]
+fn from_path_stream(file_path: String, max_sample_size: Option<usize>) -> PyResult<CharsetMatch> {
+    let path = Path::new(&file_path);
+    let file = File::open(path).map_err(|e| {
+        PyIOError::new_err(format!("Failed to open file: {}", e))
+    })?;
+
+    // Use o valor fornecido ou o padrão de 1MB
+    let max_size = max_sample_size.unwrap_or(MAX_SAMPLE_SIZE);
+
+    let mut reader = BufReader::new(file);
+    let mut buffer = Vec::new();
+    let mut total_read = 0;
+
+    // Ler arquivo em chunks até atingir o tamanho máximo de amostra
+    loop {
+        let mut chunk = vec![0u8; CHUNK_SIZE];
+        let bytes_read = reader.read(&mut chunk).map_err(|e| {
+            PyIOError::new_err(format!("Failed to read file: {}", e))
+        })?;
+
+        if bytes_read == 0 {
+            break; // End of file
+        }
+
+        buffer.extend_from_slice(&chunk[..bytes_read]);
+        total_read += bytes_read;
+
+        // Se já lemos amostra suficiente, parar
+        if total_read >= max_size {
+            break;
+        }
+    }
+
+    // Se o arquivo for menor que o tamanho mínimo para análise, usar amostra completa
+    if buffer.is_empty() {
+        return Err(PyIOError::new_err("File is empty"));
+    }
+
+    // Check for BOM markers
+    let (encoding_str, skip_bytes) = if buffer.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        ("utf_8", 3)
+    } else if buffer.starts_with(&[0xFF, 0xFE]) {
+        ("UTF-16LE", 2)
+    } else if buffer.starts_with(&[0xFE, 0xFF]) {
+        ("UTF-16BE", 2)
+    } else if buffer.starts_with(&[0xFF, 0xFE, 0x00, 0x00]) {
+        ("UTF-32LE", 4)
+    } else if buffer.starts_with(&[0x00, 0x00, 0xFE, 0xFF]) {
+        ("UTF-32BE", 4)
+    } else if let Some(utf16_encoding) = detect_utf16_pattern(&buffer) {
+        (utf16_encoding, 0)
+    } else {
+        let byte_hints = analyze_byte_patterns(&buffer);
+        let result = chardet::detect(&buffer);
+        let detected = result.0.to_lowercase().replace("-", "_");
+
+        let encoding = match detected.as_str() {
+            "utf_8" | "utf8" | "ascii" => "UTF-8",
+            "big5" | "big_5" => "Big5",
+            "gb2312" | "gb_2312" | "gbk" => "GBK",
+            "windows_1252" | "cp1252" | "iso_8859_1" => {
+                if byte_hints.contains(&"likely_turkish") {
+                    "windows-1254"
+                } else {
+                    "windows-1252"
+                }
+            },
+            "windows_1256" | "cp1256" | "iso_8859_6" => "windows-1256",
+            "windows_1255" | "cp1255" | "iso_8859_8" => "windows-1255",
+            "windows_1253" | "cp1253" | "iso_8859_7" => "windows-1253",
+            "windows_1251" | "cp1251" | "iso_8859_5" => {
+                if byte_hints.contains(&"likely_arabic") {
+                    "windows-1256"
+                } else if byte_hints.contains(&"likely_mac_cyrillic") {
+                    "x-mac-cyrillic"
+                } else {
+                    "windows-1251"
+                }
+            },
+            "windows_1254" | "cp1254" | "iso_8859_9" => "windows-1254",
+            "windows_1250" | "cp1250" | "iso_8859_2" => "windows-1250",
+            "euc_kr" | "cp949" | "windows_949" | "ks_c_5601_1987" => "windows-949",
+            "shift_jis" | "shift_jisx0213" | "cp932" => "shift_jis",
+            "euc_jp" => "EUC-JP",
+            "mac_cyrillic" | "x_mac_cyrillic" => "x-mac-cyrillic",
+            "koi8_r" | "koi8r" => "KOI8-R",
+            _ => "UTF-8",
+        };
+        (encoding, 0)
+    };
+
+    let buffer_slice = &buffer[skip_bytes..];
+    let mut encodings_to_try = vec![encoding_str];
+
+    let byte_hints = analyze_byte_patterns(&buffer);
+
+    for enc in &[
+        "UTF-8",
+        "x-mac-cyrillic",
+        "windows-1252",
+        "windows-1256",
+        "windows-1255",
+        "windows-1253",
+        "windows-1251",
+        "windows-1254",
+        "windows-1250",
+        "windows-949",
+        "Big5",
+        "GBK",
+        "shift_jis",
+        "EUC-JP",
+        "EUC-KR",
+        "mac-cyrillic",
+        "KOI8-R",
+        "ISO-8859-1",
+    ] {
+        if !encodings_to_try.contains(enc) {
+            encodings_to_try.push(enc);
+        }
+    }
+
+    let mut best_encoding = None;
+    let mut best_text = String::new();
+    let mut min_error_ratio = 1.0;
+    let mut best_score = f32::MIN;
+
+    for encoding_name in &encodings_to_try {
+        if let Some(encoding) = encoding_rs::Encoding::for_label(encoding_name.as_bytes()) {
+            let (decoded, _, had_errors) = encoding.decode(buffer_slice);
+
+            let error_chars = decoded.chars().filter(|&c| c == '\u{FFFD}').count();
+            let total_chars = decoded.chars().count().max(1);
+            let error_ratio = error_chars as f32 / total_chars as f32;
+
+            let mut score = 1.0 - error_ratio;
+
+            if encoding_name == &encoding_str {
+                score += 0.05;
+            }
+
+            let lang_hints = detect_language_hints(&decoded);
+
+            if lang_hints.contains(&"arabic") && encoding_name.contains("1256") {
+                score += 0.5;
+            }
+            if lang_hints.contains(&"turkish") && encoding_name.contains("1254") {
+                score += 0.4;
+            }
+            if lang_hints.contains(&"korean") {
+                if encoding_name.contains("949") || encoding_name.contains("windows-949") {
+                    score += 0.4;
+                } else if encoding_name.contains("euc-kr") || encoding_name.contains("EUC-KR") {
+                    score += 0.2;
+                }
+            }
+            if lang_hints.contains(&"cyrillic") {
+                if encoding_name.contains("mac-cyrillic") || encoding_name.contains("x-mac-cyrillic") {
+                    score += 0.5;
+                } else if encoding_name.contains("1251") {
+                    score += 0.2;
+                }
+            }
+
+            if lang_hints.contains(&"arabic") && encoding_name.contains("1251") {
+                score -= 0.5;
+            }
+            if lang_hints.contains(&"cyrillic") && encoding_name.contains("1256") {
+                score -= 0.9;
+            }
+
+            if byte_hints.contains(&"likely_mac_cyrillic") &&
+               (encoding_name.contains("mac-cyrillic") || encoding_name.contains("x-mac-cyrillic")) {
+                score += 0.4;
+            }
+
+            if score > best_score || (score == best_score && error_ratio < min_error_ratio) {
+                best_score = score;
+                min_error_ratio = error_ratio;
+                best_encoding = Some(encoding.name().to_string());
+                best_text = decoded.to_string();
+
+                if !had_errors && error_ratio == 0.0 && score > 1.0 {
+                    break;
+                }
+            }
+        }
+    }
+
+    let mut final_encoding = best_encoding.unwrap_or_else(|| "UTF-8".to_string());
+
+    if final_encoding.to_lowercase().contains("euc-kr") || final_encoding.to_lowercase().contains("euc_kr") {
+        final_encoding = "windows-949".to_string();
+    }
+
+    let normalized_encoding = normalize_encoding_name(&final_encoding);
+
+    Ok(CharsetMatch {
+        encoding: normalized_encoding,
+        raw_bytes: buffer, // Apenas a amostra, não o arquivo completo
+        decoded_text: best_text,
+    })
+}
+
 /// A Python module implemented in Rust.
 #[pymodule]
 fn _internal(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(from_path, m)?)?;
+    m.add_function(wrap_pyfunction!(from_path_stream, m)?)?;
     m.add_class::<CharsetMatch>()?;
     Ok(())
 }

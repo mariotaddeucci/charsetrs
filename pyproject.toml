@@ -37,6 +37,7 @@ dev = [
 features = ["pyo3/extension-module"]
 python-source = "src"
 module-name = "charsetrs._internal"
+skip = ["pypy*"]
 
 [tool.ruff]
 line-length = 120

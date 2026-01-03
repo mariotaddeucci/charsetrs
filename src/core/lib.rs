@@ -1,128 +1,8 @@
 use pyo3::prelude::*;
 use pyo3::exceptions::PyIOError;
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-
-// Language detection based on Unicode ranges and character frequency
-fn detect_language(text: &str, encoding: &str) -> String {
-    if text.is_empty() {
-        return "Unknown".to_string();
-    }
-
-    // Simple language detection based on character ranges
-    let mut char_counts: HashMap<&str, usize> = HashMap::new();
-
-    for ch in text.chars() {
-        let code_point = ch as u32;
-
-        match code_point {
-            0x0600..=0x06FF | 0x0750..=0x077F | 0x08A0..=0x08FF | 0xFB50..=0xFDFF | 0xFE70..=0xFEFF => {
-                *char_counts.entry("Arabic").or_insert(0) += 1;
-            },
-            0x0590..=0x05FF | 0xFB1D..=0xFB4F => {
-                *char_counts.entry("Hebrew").or_insert(0) += 1;
-            },
-            0x0370..=0x03FF | 0x1F00..=0x1FFF => {
-                *char_counts.entry("Greek").or_insert(0) += 1;
-            },
-            0x0400..=0x04FF | 0x0500..=0x052F => {
-                *char_counts.entry("Cyrillic").or_insert(0) += 1;
-            },
-            0x4E00..=0x9FFF | 0x3400..=0x4DBF => {
-                *char_counts.entry("Chinese").or_insert(0) += 1;
-            },
-            0x3040..=0x309F | 0x30A0..=0x30FF => {
-                *char_counts.entry("Japanese").or_insert(0) += 1;
-            },
-            0xAC00..=0xD7AF | 0x1100..=0x11FF | 0x3130..=0x318F => {
-                *char_counts.entry("Korean").or_insert(0) += 1;
-            },
-            0x0E00..=0x0E7F => {
-                *char_counts.entry("Thai").or_insert(0) += 1;
-            },
-            _ => {
-                if ch.is_ascii_alphabetic() || (0x00C0..=0x024F).contains(&code_point) {
-                    *char_counts.entry("Latin").or_insert(0) += 1;
-                }
-            }
-        }
-    }
-
-    // Check for non-Latin scripts first
-    if let Some((&lang, &count)) = char_counts.iter().filter(|(k, _)| **k != "Latin").max_by_key(|(_, &c)| c) {
-        if count > 10 {
-            return match lang {
-                "Cyrillic" => {
-                    // Distinguish between Cyrillic languages
-                    let encoding_lower = encoding.to_lowercase();
-                    if text.contains("ъ") || text.contains("ѝ") || encoding_lower.contains("bulgarian") {
-                        "Bulgarian".to_string()
-                    } else {
-                        "Russian".to_string()
-                    }
-                },
-                other => other.to_string(),
-            };
-        }
-    }
-
-    // For Latin-based languages, use encoding and text patterns
-    let encoding_lower = encoding.to_lowercase();
-    let text_lower = text.to_lowercase();
-
-    // Encoding-based detection
-    let lang_from_encoding = match encoding_lower.as_str() {
-        e if e.contains("1256") || e.contains("864") => Some("Arabic"),
-        e if e.contains("1255") || e.contains("862") || e.contains("424") => Some("Hebrew"),
-        e if e.contains("1253") || e.contains("737") || e.contains("greek") => Some("Greek"),
-        e if e.contains("1251") || e.contains("866") || e.contains("855") || e.contains("cyrillic") || e.contains("koi") => Some("Russian"),
-        e if e.contains("950") || e.contains("big5") || e.contains("gb") => Some("Chinese"),
-        e if e.contains("932") || e.contains("shift") || e.contains("euc_jp") || e.contains("iso2022_jp") => Some("Japanese"),
-        e if e.contains("949") || e.contains("johab") || e.contains("euc_kr") => Some("Korean"),
-        e if e.contains("1254") || e.contains("857") => Some("Turkish"),
-        e if e.contains("1250") || e.contains("iso_8859_2") => Some("Polish"),
-        _ => None,
-    };
-
-    if let Some(lang) = lang_from_encoding {
-        return lang.to_string();
-    }
-
-    // Content-based detection for Latin scripts
-    // Look for language-specific patterns
-    if text_lower.contains("ş") || text_lower.contains("ğ") || text_lower.contains("ı") {
-        return "Turkish".to_string();
-    }
-
-    if text_lower.contains("ą") || text_lower.contains("ć") || text_lower.contains("ę") ||
-       text_lower.contains("ł") || text_lower.contains("ń") || text_lower.contains("ó") ||
-       text_lower.contains("ś") || text_lower.contains("ź") || text_lower.contains("ż") {
-        return "Polish".to_string();
-    }
-
-    if text_lower.contains("à") || text_lower.contains("â") || text_lower.contains("ç") ||
-       text_lower.contains("é") || text_lower.contains("è") || text_lower.contains("ê") ||
-       text_lower.contains("ë") || text_lower.contains("î") || text_lower.contains("ï") ||
-       text_lower.contains("ô") || text_lower.contains("ù") || text_lower.contains("û") ||
-       text_lower.contains("ü") || text_lower.contains("ÿ") {
-        // Could be French, but check for common French words
-        if text_lower.contains(" le ") || text_lower.contains(" la ") || text_lower.contains(" les ") ||
-           text_lower.contains(" de ") || text_lower.contains(" et ") || text_lower.contains(" des ") ||
-           text_lower.contains(" du ") {
-            return "French".to_string();
-        }
-    }
-
-    if text_lower.contains("¿") || text_lower.contains("¡") ||
-       text_lower.contains("ñ") {
-        return "Spanish".to_string();
-    }
-
-    // Default to English for Latin scripts
-    "English".to_string()
-}
 
 // Normalize encoding name to Python codec format
 fn normalize_encoding_name(encoding: &str) -> String {
@@ -160,8 +40,6 @@ fn normalize_encoding_name(encoding: &str) -> String {
 struct CharsetMatch {
     #[pyo3(get)]
     encoding: String,
-    #[pyo3(get)]
-    language: String,
     raw_bytes: Vec<u8>,
     decoded_text: String,
 }
@@ -277,11 +155,9 @@ fn from_path(file_path: String) -> PyResult<CharsetMatch> {
 
     let final_encoding = best_encoding.unwrap_or_else(|| "UTF-8".to_string());
     let normalized_encoding = normalize_encoding_name(&final_encoding);
-    let detected_language = detect_language(&best_text, &normalized_encoding);
 
     Ok(CharsetMatch {
         encoding: normalized_encoding,
-        language: detected_language,
         raw_bytes: buffer,
         decoded_text: best_text,
     })

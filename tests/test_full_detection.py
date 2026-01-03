@@ -8,32 +8,31 @@ DIR_PATH = Path(__file__).parent.absolute() / "data"
 
 
 @pytest.mark.parametrize(
-    "input_data_file, expected_charset, expected_language",
+    "input_data_file, expected_charset",
     [
-        ("sample-arabic-1.txt", "cp1256", "Arabic"),
-        ("sample-french-1.txt", "cp1252", "French"),
-        ("sample-arabic.txt", "utf_8", "Arabic"),
-        ("sample-russian-3.txt", "utf_8", "Russian"),
-        ("sample-french.txt", "utf_8", "French"),
-        ("sample-chinese.txt", "big5", "Chinese"),
-        ("sample-greek.txt", "cp1253", "Greek"),
-        ("sample-greek-2.txt", "cp1253", "Greek"),
-        ("sample-hebrew-2.txt", "cp1255", "Hebrew"),
-        ("sample-hebrew-3.txt", "cp1255", "Hebrew"),
-        ("sample-bulgarian.txt", "utf_8", "Bulgarian"),
-        ("sample-english.bom.txt", "utf_8", "English"),
-        ("sample-spanish.txt", "utf_8", "Spanish"),
-        ("sample-korean.txt", "cp949", "Korean"),
-        ("sample-turkish.txt", "cp1254", "Turkish"),
-        ("sample-russian-2.txt", "utf_8", "Russian"),
-        ("sample-russian.txt", "mac_cyrillic", "Russian"),
-        ("sample-polish.txt", "utf_8", "Polish"),
+        ("sample-arabic-1.txt", "cp1256"),
+        ("sample-french-1.txt", "cp1252"),
+        ("sample-arabic.txt", "utf_8"),
+        ("sample-russian-3.txt", "utf_8"),
+        ("sample-french.txt", "utf_8"),
+        ("sample-chinese.txt", "big5"),
+        ("sample-greek.txt", "cp1253"),
+        ("sample-greek-2.txt", "cp1253"),
+        ("sample-hebrew-2.txt", "cp1255"),
+        ("sample-hebrew-3.txt", "cp1255"),
+        ("sample-bulgarian.txt", "utf_8"),
+        ("sample-english.bom.txt", "utf_8"),
+        ("sample-spanish.txt", "utf_8"),
+        ("sample-korean.txt", "cp949"),
+        ("sample-turkish.txt", "cp1254"),
+        ("sample-russian-2.txt", "utf_8"),
+        ("sample-russian.txt", "mac_cyrillic"),
+        ("sample-polish.txt", "utf_8"),
     ],
 )
 def test_elementary_detection(
     input_data_file: str,
     expected_charset: str,
-    expected_language: str,
 ):
     from charset_normalizer_rs import from_path
 
@@ -46,8 +45,4 @@ def test_elementary_detection(
     assert best_guess.encoding == expected_charset, (
         f"Elementary charset detection has failed upon '{input_data_file}'. "
         f"Expected {expected_charset}, got {best_guess.encoding}"
-    )
-    assert best_guess.language == expected_language, (
-        f"Elementary language detection has failed upon '{input_data_file}'. "
-        f"Expected {expected_language}, got {best_guess.language}"
     )

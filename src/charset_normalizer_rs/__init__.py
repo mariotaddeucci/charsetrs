@@ -34,7 +34,7 @@ class CharsetMatches:
 
 def from_path(path):
     """
-    Detect charset and language from a file path.
+    Detect charset from a file path.
     Returns a CharsetMatches object with a best() method.
 
     Compatible with charset_normalizer's from_path function.

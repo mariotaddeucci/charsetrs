@@ -18,7 +18,8 @@ def test_elementary_detection(
         pytest.skip(f"No charset detected by charset_normalizer for {file_path}")
     expected_charset = expected_best.encoding
 
-    detected_charset = charsetrs.detect(file_path.as_posix())
+    result = charsetrs.analyse(file_path.as_posix())
+    detected_charset = result.encoding
 
     assert detected_charset == expected_charset, (  # noqa: S101
         f"Expected charset {expected_charset}, got {detected_charset} for file {file_path}"

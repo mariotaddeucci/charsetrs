@@ -1,11 +1,13 @@
 # charsetrs
 
-A fast Python library with Rust bindings for detecting and converting file character encodings.
+A fast Python library with Rust bindings for detecting file character encodings and normalizing files.
 
 ## Features
 
-- **Simple API**: Just two functions - `detect()` and `convert()`
+- **Simple API**: Just two functions - `analyse()` and `normalize()`
 - **Fast encoding detection** using Rust
+- **Newline detection**: Detects LF, CRLF, or CR newline styles
+- **File normalization**: Convert encoding and newlines in one step
 - **Memory efficient**: Works with large files using streaming
 - **Supports multiple encodings**: UTF-8, Latin-1, Windows-1252, UTF-16, ASCII, Arabic, Korean, and more
 - **Configurable sample size**: Control memory usage vs accuracy trade-off
@@ -35,13 +37,18 @@ uv run maturin build --release
 ```python
 import charsetrs
 
-# Detect file encoding
-encoding = charsetrs.detect("file.txt")
-print(f"Detected encoding: {encoding}")
+# Analyse file encoding and newline style
+result = charsetrs.analyse("file.txt")
+print(f"Encoding: {result.encoding}")  # e.g., 'utf_8'
+print(f"Newlines: {result.newlines}")  # e.g., 'LF', 'CRLF', or 'CR'
 
-# Convert file to UTF-8
-content = charsetrs.convert("file.txt", to="utf-8")
-print(content)
+# Normalize file to UTF-8 with LF newlines
+charsetrs.normalize(
+    "file.txt",
+    output="file_utf8.txt",
+    encoding="utf-8",
+    newlines="LF"
+)
 ```
 
 ### Working with Large Files
@@ -52,13 +59,36 @@ For large files, you can control how many bytes are read for encoding detection:
 import charsetrs
 
 # Use only 512KB for detection (faster, less memory)
-encoding = charsetrs.detect("large_file.txt", max_sample_size=512*1024)
+result = charsetrs.analyse("large_file.txt", max_sample_size=512*1024)
 
 # Use 2MB for detection (more accurate)
-encoding = charsetrs.detect("large_file.txt", max_sample_size=2*1024*1024)
+result = charsetrs.analyse("large_file.txt", max_sample_size=2*1024*1024)
 
-# Convert large file with custom sample size
-content = charsetrs.convert("large_file.txt", to="utf-8", max_sample_size=1024*1024)
+# Normalize large file with custom sample size
+charsetrs.normalize(
+    "large_file.txt",
+    output="large_utf8.txt",
+    encoding="utf-8",
+    newlines="LF",
+    max_sample_size=1024*1024
+)
+```
+
+### Newline Normalization
+
+Convert between different newline styles:
+
+```python
+import charsetrs
+
+# Convert Windows-style (CRLF) to Unix-style (LF)
+charsetrs.normalize("windows.txt", output="unix.txt", encoding="utf-8", newlines="LF")
+
+# Convert to Windows-style (CRLF)
+charsetrs.normalize("unix.txt", output="windows.txt", encoding="utf-8", newlines="CRLF")
+
+# Convert to old Mac-style (CR)
+charsetrs.normalize("file.txt", output="mac.txt", encoding="utf-8", newlines="CR")
 ```
 
 ### Supported Encodings
@@ -75,33 +105,60 @@ content = charsetrs.convert("large_file.txt", to="utf-8", max_sample_size=1024*1
 
 ## API Reference
 
-### `charsetrs.detect(file_path, max_sample_size=None)`
+### `charsetrs.analyse(file_path, max_sample_size=None)`
 
-Detect the encoding of a file.
+Analyse the encoding and newline style of a file.
 
 **Parameters:**
 - `file_path` (str or Path): Path to the file
 - `max_sample_size` (int, optional): Maximum bytes to read for detection (default: 1MB)
 
 **Returns:**
-- `str`: The detected encoding name (e.g., 'utf_8', 'cp1252', 'windows_1256')
+- `AnalysisResult`: Object with `encoding` and `newlines` attributes
 
-### `charsetrs.convert(file_path, to, max_sample_size=None)`
+**Example:**
+```python
+result = charsetrs.analyse("file.txt")
+print(result.encoding)  # 'utf_8'
+print(result.newlines)  # 'LF'
+```
 
-Convert a file from its detected encoding to a target encoding.
+### `charsetrs.normalize(file_path, output, encoding="utf-8", newlines="LF", max_sample_size=None)`
+
+Normalize a file by converting its encoding and newline style.
 
 **Parameters:**
-- `file_path` (str or Path): Path to the file
-- `to` (str): Target encoding (e.g., 'utf-8', 'latin-1')
+- `file_path` (str or Path): Path to the input file
+- `output` (str or Path): Path to the output file
+- `encoding` (str, optional): Target encoding (default: 'utf-8')
+- `newlines` (str, optional): Target newline style - 'LF', 'CRLF', or 'CR' (default: 'LF')
 - `max_sample_size` (int, optional): Maximum bytes to read for detection (default: 1MB)
-
-**Returns:**
-- `str`: The file content converted to the target encoding
 
 **Raises:**
-- `ValueError`: If encoding conversion fails
-- `IOError`: If file cannot be read
+- `ValueError`: If encoding conversion fails or invalid newlines value
+- `IOError`: If file cannot be read or written
 - `LookupError`: If target encoding is invalid
+
+**Example:**
+```python
+charsetrs.normalize(
+    "input.txt",
+    output="output.txt",
+    encoding="utf-8",
+    newlines="LF"
+)
+```
+
+### `AnalysisResult`
+
+A frozen dataclass containing analysis results:
+
+```python
+@dataclass(frozen=True)
+class AnalysisResult:
+    encoding: str                        # e.g., 'utf_8', 'cp1252'
+    newlines: Literal["LF", "CRLF", "CR"]  # Detected newline style
+```
 
 ## Testing
 

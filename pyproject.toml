@@ -3,7 +3,7 @@ requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "charset-normalizer-rs"
+name = "charsetrs"
 version = "0.1.0"
 description = "A Python library with Rust bindings for charset detection"
 readme = "README.md"
@@ -38,7 +38,7 @@ dev = [
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "src"
-module-name = "charset_normalizer_rs._internal"
+module-name = "charsetrs._internal"
 
 [tool.ruff]
 line-length = 120
@@ -57,5 +57,5 @@ format = "ruff check --fix . && ruff format ."
 testpaths = ["tests"]
 
 [tool.pyrefly]
-replace-imports-with-any= ["charset_normalizer_rs._internal"]
+replace-imports-with-any= ["charsetrs._internal"]
 

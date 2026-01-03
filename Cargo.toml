@@ -1,10 +1,10 @@
 [package]
-name = "charset-normalizer-rs"
+name = "charsetrs"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "charset_normalizer_rs"
+name = "charsetrs"
 crate-type = ["cdylib"]
 path = "src/core/lib.rs"
 

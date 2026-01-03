@@ -344,7 +344,6 @@ fn analyse_from_path_stream(file_path: String, max_sample_size: Option<usize>) -
     }
 
     let mut best_encoding = None;
-    let mut best_text = String::new();
     let mut min_error_ratio = 1.0;
     let mut best_score = f32::MIN;
 
@@ -401,7 +400,6 @@ fn analyse_from_path_stream(file_path: String, max_sample_size: Option<usize>) -
                 best_score = score;
                 min_error_ratio = error_ratio;
                 best_encoding = Some(encoding.name().to_string());
-                best_text = decoded.to_string();
 
                 if !had_errors && error_ratio == 0.0 && score > 1.0 {
                     break;

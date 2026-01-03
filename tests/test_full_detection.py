@@ -1,48 +1,27 @@
-from __future__ import annotations
-
 from pathlib import Path
 
 import pytest
+from charset_normalizer import from_path as cn_from_path
+
+from charset_normalizer_rs import from_path
 
 DIR_PATH = Path(__file__).parent.absolute() / "data"
 
 
-@pytest.mark.parametrize(
-    "input_data_file, expected_charset",
-    [
-        ("sample-arabic-1.txt", "cp1256"),
-        ("sample-french-1.txt", "cp1252"),
-        ("sample-arabic.txt", "utf_8"),
-        ("sample-russian-3.txt", "utf_8"),
-        ("sample-french.txt", "utf_8"),
-        ("sample-chinese.txt", "big5"),
-        ("sample-greek.txt", "cp1253"),
-        ("sample-greek-2.txt", "cp1253"),
-        ("sample-hebrew-2.txt", "cp1255"),
-        ("sample-hebrew-3.txt", "cp1255"),
-        ("sample-bulgarian.txt", "utf_8"),
-        ("sample-english.bom.txt", "utf_8"),
-        ("sample-spanish.txt", "utf_8"),
-        ("sample-korean.txt", "cp949"),
-        ("sample-turkish.txt", "cp1254"),
-        ("sample-russian-2.txt", "utf_8"),
-        ("sample-russian.txt", "mac_cyrillic"),
-        ("sample-polish.txt", "utf_8"),
-    ],
-)
+@pytest.mark.parametrize("file_path", [p.absolute() for p in DIR_PATH.glob("*")])
 def test_elementary_detection(
-    input_data_file: str,
-    expected_charset: str,
+    file_path: Path,
 ):
-    from charset_normalizer_rs import from_path
+    expected = cn_from_path(file_path.as_posix())
+    expected_best = expected.best()
+    if expected_best is None:
+        pytest.skip(f"No charset detected by charset_normalizer for {file_path}")
+    expected_charset = expected_best.encoding
 
-    file_path = DIR_PATH / input_data_file
-    best_guess = from_path(file_path).best()
+    detected = from_path(file_path.as_posix())
+    best_guess = detected.best()
+    detected_charset = best_guess.encoding
 
-    assert best_guess is not None, (
-        f"Elementary detection has failed upon '{input_data_file}'"
-    )
-    assert best_guess.encoding == expected_charset, (
-        f"Elementary charset detection has failed upon '{input_data_file}'. "
-        f"Expected {expected_charset}, got {best_guess.encoding}"
+    assert detected_charset == expected_charset, (  # noqa: S101
+        f"Expected charset {expected_charset}, got {detected_charset} for file {file_path}"
     )

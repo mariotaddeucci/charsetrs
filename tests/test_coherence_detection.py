@@ -8,14 +8,12 @@ para garantir compatibilidade com um projeto estável.
 
 from __future__ import annotations
 
-import os
-import tempfile
 import pytest
-
 
 # Mock das funções do charset_normalizer original que testam a coerência
 # Como o projeto charset_normalizer_rs é focado em detecção de encoding,
 # vamos adaptar os testes para verificar se a detecção funciona corretamente
+
 
 def encoding_languages(iana_encoding: str) -> list[str]:
     """
@@ -33,17 +31,21 @@ def encoding_languages(iana_encoding: str) -> list[str]:
         "mac_greek": ["Greek"],
         "iso2022_jp": ["Japanese"],
     }
-    return encoding_map.get(iana_encoding.lower().replace('-', '_'), [])
+    return encoding_map.get(iana_encoding.lower().replace("-", "_"), [])
 
 
 def mb_encoding_languages(iana_encoding: str) -> list[str]:
     """
     Retorna as linguagens para encodings multi-byte.
     """
-    encoding = iana_encoding.lower().replace('-', '_')
+    encoding = iana_encoding.lower().replace("-", "_")
 
-    if encoding.startswith("shift_") or encoding.startswith("iso2022_jp") or \
-       encoding.startswith("euc_j") or encoding == "cp932":
+    if (
+        encoding.startswith("shift_")
+        or encoding.startswith("iso2022_jp")
+        or encoding.startswith("euc_j")
+        or encoding == "cp932"
+    ):
         return ["Japanese"]
     if encoding.startswith("gb") or encoding in ["gb2312", "gbk", "gb18030"]:
         return ["Chinese"]
@@ -58,16 +60,37 @@ def is_multi_byte_encoding(iana_encoding: str) -> bool:
     Verifica se um encoding é multi-byte.
     """
     multi_byte = [
-        "shift_jis", "shift_jisx0213", "cp932",
-        "euc_jp", "euc_jis_2004", "euc_jisx0213",
-        "iso2022_jp", "iso2022_jp_1", "iso2022_jp_2", "iso2022_jp_2004", "iso2022_jp_3", "iso2022_jp_ext",
-        "gb2312", "gbk", "gb18030", "hz",
-        "euc_kr", "cp949", "johab", "iso2022_kr",
-        "utf_16", "utf_16_be", "utf_16_le",
-        "utf_32", "utf_32_be", "utf_32_le",
-        "utf_7", "utf_8", "utf_8_sig"
+        "shift_jis",
+        "shift_jisx0213",
+        "cp932",
+        "euc_jp",
+        "euc_jis_2004",
+        "euc_jisx0213",
+        "iso2022_jp",
+        "iso2022_jp_1",
+        "iso2022_jp_2",
+        "iso2022_jp_2004",
+        "iso2022_jp_3",
+        "iso2022_jp_ext",
+        "gb2312",
+        "gbk",
+        "gb18030",
+        "hz",
+        "euc_kr",
+        "cp949",
+        "johab",
+        "iso2022_kr",
+        "utf_16",
+        "utf_16_be",
+        "utf_16_le",
+        "utf_32",
+        "utf_32_be",
+        "utf_32_le",
+        "utf_7",
+        "utf_8",
+        "utf_8_sig",
     ]
-    encoding = iana_encoding.lower().replace('-', '_')
+    encoding = iana_encoding.lower().replace("-", "_")
     return any(mb in encoding for mb in multi_byte)
 
 
@@ -144,9 +167,9 @@ class TestInferLanguageFromCP:
         )
 
         for expected_language in expected_languages:
-            assert (
-                expected_language in languages
-            ), f"Wrongly detected language for given code page. Expected {expected_language} in {languages}"
+            assert expected_language in languages, (
+                f"Wrongly detected language for given code page. Expected {expected_language} in {languages}"
+            )
 
 
 class TestTargetFeatures:
@@ -238,6 +261,7 @@ class TestEncodingDetectionCompatibility:
         """Verifica se as funções básicas podem ser importadas"""
         try:
             from charset_normalizer_rs import detect_encoding, read_file_with_encoding
+
             assert detect_encoding is not None
             assert read_file_with_encoding is not None
         except ImportError as e:
@@ -246,4 +270,3 @@ class TestEncodingDetectionCompatibility:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

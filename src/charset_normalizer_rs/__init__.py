@@ -124,7 +124,7 @@ def read_file_with_encoding(path, encoding):
     python_encoding = encoding_map.get(encoding_normalized, encoding)
 
     try:
-        with open(path, "r", encoding=python_encoding, errors="strict") as f:
+        with open(path, encoding=python_encoding, errors="strict") as f:
             return f.read()
     except (UnicodeDecodeError, LookupError) as e:
-        raise ValueError(f"Cannot decode file with encoding '{encoding}': {str(e)}")
+        raise ValueError(f"Cannot decode file with encoding '{encoding}': {str(e)}") from e

@@ -7,7 +7,7 @@ name = "charset-normalizer-rs"
 version = "0.1.0"
 description = "A Python library with Rust bindings for charset detection"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
     {name = "Mario Taddeucci"}
@@ -16,28 +16,45 @@ classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
 
 dependencies = []
-
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
-    "pytest>=7.0",
-    "maturin>=1.0,<2.0",
+    "charset-normalizer>=3.4.4",
+    "maturin>=1.10.2",
+    "pyrefly>=0.46.3",
+    "pytest>=9.0.2",
+    "ruff>=0.14.10",
+    "taskipy>=1.14.1",
 ]
+
+
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "src"
 module-name = "charset_normalizer_rs._internal"
 
+[tool.ruff]
+line-length = 120
+lint.extend-select = ["E", "F", "W", "C90", "B", "I", "N", "Q", "S", "UP", "YTT"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "B017"]
+
+
+[tool.taskipy.tasks]
+test = "pytest"
+lint = "ruff check . && ruff format --check . && pyrefly check ."
+format = "ruff check --fix . && ruff format ."
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
+
+[tool.pyrefly]
+replace-imports-with-any= ["charset_normalizer_rs._internal"]
+

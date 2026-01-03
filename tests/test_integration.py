@@ -16,20 +16,14 @@ class TestEncodingDetection:
 
     def test_detect_utf8_encoding(self):
         """Test detection of UTF-8 encoded file"""
-        with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", delete=False, suffix=".txt"
-        ) as f:
-            test_content = (
-                "Hello World! This is UTF-8 text with special chars: áéíóú ñ 你好"
-            )
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False, suffix=".txt") as f:
+            test_content = "Hello World! This is UTF-8 text with special chars: áéíóú ñ 你好"
             f.write(test_content)
             temp_path = f.name
 
         try:
             detected = detect_encoding(temp_path)
-            assert detected.upper() in ["UTF-8", "UTF8", "UTF_8"], (
-                f"Expected UTF-8, got {detected}"
-            )
+            assert detected.upper() in ["UTF-8", "UTF8", "UTF_8"], f"Expected UTF-8, got {detected}"
 
             # Verify we can read the file with detected encoding
             content = read_file_with_encoding(temp_path, detected)
@@ -67,9 +61,7 @@ class TestEncodingDetection:
         """Test detection of Windows-1252 encoded file"""
         with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".txt") as f:
             # Windows-1252 specific characters
-            test_content = (
-                "Windows text with smart quotes: \u201cHello\u201d and \u20acuro symbol"
-            )
+            test_content = "Windows text with smart quotes: \u201cHello\u201d and \u20acuro symbol"
             f.write(test_content.encode("windows-1252"))
             temp_path = f.name
 
@@ -91,9 +83,7 @@ class TestEncodingDetection:
 
     def test_detect_ascii_encoding(self):
         """Test detection of ASCII encoded file"""
-        with tempfile.NamedTemporaryFile(
-            mode="w", encoding="ascii", delete=False, suffix=".txt"
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="ascii", delete=False, suffix=".txt") as f:
             test_content = "Simple ASCII text without any special characters"
             f.write(test_content)
             temp_path = f.name
@@ -129,9 +119,7 @@ class TestEncodingDetection:
             detected = detect_encoding(temp_path)
             # Should detect as UTF-16 (with BOM it detects as UTF-16LE)
             detected_upper = detected.upper().replace("_", "-")
-            assert "UTF-16" in detected_upper or "UTF16" in detected_upper, (
-                f"Expected UTF-16, got {detected}"
-            )
+            assert "UTF-16" in detected_upper or "UTF16" in detected_upper, f"Expected UTF-16, got {detected}"
 
             # Verify we can read the file
             content = read_file_with_encoding(temp_path, detected)
@@ -141,9 +129,7 @@ class TestEncodingDetection:
 
     def test_read_file_with_wrong_encoding_fails(self):
         """Test that reading with wrong encoding raises an error"""
-        with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", delete=False, suffix=".txt"
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False, suffix=".txt") as f:
             test_content = "UTF-8 text: 你好世界"
             f.write(test_content)
             temp_path = f.name
@@ -181,9 +167,7 @@ class TestReadFileWithEncoding:
 
     def test_read_utf8_file(self):
         """Test reading UTF-8 file"""
-        with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", delete=False, suffix=".txt"
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False, suffix=".txt") as f:
             test_content = "UTF-8 content with special chars: áéíóú"
             f.write(test_content)
             temp_path = f.name

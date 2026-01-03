@@ -34,23 +34,37 @@ class AnalysisResult:
     newlines: Literal["LF", "CRLF", "CR"]
 
 
-def analyse(file_path: str | Path, max_sample_size: int | None = None) -> AnalysisResult:
+def analyse(
+    file_path: str | Path,
+    min_sample_size: int = 1024 * 1024,
+    percentage_sample_size: float = 0.1,
+    max_sample_size: int | None = None,
+) -> AnalysisResult:
     """
     Analyse the encoding and newline style of a file.
 
-    This function uses streaming to analyze files efficiently, making it suitable
-    for large files. By default, it reads up to 1MB of the file for analysis.
+    This function uses streaming to analyze files efficiently with a smart sampling
+    strategy that reads from the beginning, middle, and end of the file without
+    loading the entire file into memory.
 
     Args:
         file_path: Path to the file to analyse (string or Path object)
-        max_sample_size: Optional. Maximum number of bytes to read from the file.
-                        Default is 1MB (1024*1024 bytes).
-                        For large files, you can increase this for better accuracy,
-                        or decrease it for faster processing.
-                        Examples: 512*1024 (512KB), 2*1024*1024 (2MB)
+        min_sample_size: Minimum number of bytes to sample. Default is 1MB.
+                        For files smaller than this, the entire file is sampled.
+        percentage_sample_size: Percentage of file to sample (0.0 to 1.0).
+                               Default is 0.1 (10% of the file).
+        max_sample_size: Optional maximum number of bytes to sample.
+                        Default is None (no maximum limit).
+                        Can be used to cap memory usage for very large files.
 
     Returns:
         AnalysisResult: Object containing encoding and newlines information
+
+    Sampling Strategy:
+        The function reads samples strategically without loading the entire file:
+        - 35% from the beginning of the file
+        - 15% from the end of the file
+        - 50% distributed in chunks throughout the middle
 
     Examples:
         >>> import charsetrs
@@ -60,8 +74,11 @@ def analyse(file_path: str | Path, max_sample_size: int | None = None) -> Analys
         >>> print(result.newlines)
         'LF'
 
-        >>> # For large files, specify sample size
-        >>> result = charsetrs.analyse("large_file.txt", max_sample_size=2*1024*1024)
+        >>> # For large files with custom sampling
+        >>> result = charsetrs.analyse("large_file.txt",
+        ...                           min_sample_size=2*1024*1024,
+        ...                           percentage_sample_size=0.05,
+        ...                           max_sample_size=10*1024*1024)
         >>> print(result.encoding)
         'windows_1252'
     """
@@ -75,7 +92,9 @@ def analyse(file_path: str | Path, max_sample_size: int | None = None) -> Analys
     if file_path.exists() is False:
         raise FileNotFoundError(f"File '{file_path}' does not exist.")
 
-    rust_result = _analyse_from_path_stream_internal(file_path.as_posix(), max_sample_size)
+    rust_result = _analyse_from_path_stream_internal(
+        file_path.as_posix(), min_sample_size, percentage_sample_size, max_sample_size
+    )
     return AnalysisResult(
         encoding=rust_result.encoding,
         newlines=rust_result.newlines,
@@ -112,6 +131,8 @@ def normalize(
     file_path: str | Path,
     encoding: str = "utf-8",
     newlines: Literal["LF", "CRLF", "CR"] = "LF",
+    min_sample_size: int = 1024 * 1024,
+    percentage_sample_size: float = 0.1,
     max_sample_size: int | None = None,
 ):
     """
@@ -125,9 +146,9 @@ def normalize(
         file_path: Path to the input file (string or Path object)
         encoding: Target encoding name (e.g., 'utf-8', 'utf-16', 'latin-1'). Default: 'utf-8'
         newlines: Target newline style ('LF', 'CRLF', or 'CR'). Default: 'LF'
-        max_sample_size: Optional. Maximum number of bytes to read for encoding detection.
-                        Default is 1MB. Larger values improve detection accuracy.
-                        Examples: 512*1024 (512KB), 2*1024*1024 (2MB)
+        min_sample_size: Minimum number of bytes to sample. Default is 1MB.
+        percentage_sample_size: Percentage of file to sample (0.0 to 1.0). Default is 0.1 (10%).
+        max_sample_size: Optional maximum number of bytes to sample. Default is None.
 
     Raises:
         IOError: If file cannot be read or written
@@ -141,8 +162,10 @@ def normalize(
         >>> # Normalize to Windows-style with specific encoding
         >>> charsetrs.normalize("file.txt", encoding="windows-1252", newlines="CRLF")
 
-        >>> # For large files with custom sample size
-        >>> charsetrs.normalize("large.txt", encoding="utf-8", newlines="LF", max_sample_size=2*1024*1024)
+        >>> # For large files with custom sampling
+        >>> charsetrs.normalize("large.txt", encoding="utf-8", newlines="LF",
+        ...                    min_sample_size=2*1024*1024,
+        ...                    percentage_sample_size=0.05)
     """
     # Validate inputs
     if isinstance(file_path, str):
@@ -156,7 +179,7 @@ def normalize(
         raise FileNotFoundError(f"File '{file_path}' does not exist.")
 
     # Check if normalization is needed
-    result = analyse(file_path, max_sample_size)
+    result = analyse(file_path, min_sample_size, percentage_sample_size, max_sample_size)
 
     # Check if encodings are equivalent and newlines match
     if _encodings_are_equivalent(result.encoding, encoding) and result.newlines == newlines:
@@ -174,6 +197,8 @@ def normalize(
                 temp_output.as_posix(),
                 encoding,
                 newlines,
+                min_sample_size,
+                percentage_sample_size,
                 max_sample_size,
             )
         except OSError as e:

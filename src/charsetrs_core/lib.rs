@@ -1,12 +1,18 @@
 use pyo3::exceptions::PyIOError;
 use pyo3::prelude::*;
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
-// Constantes para controle de memória
-const CHUNK_SIZE: usize = 8192; // 8KB por chunk
-const MAX_SAMPLE_SIZE: usize = 1024 * 1024; // 1MB de amostra máxima para análise
+// Constants for memory control
+const CHUNK_SIZE: usize = 8192; // 8KB per chunk
+
+// Sampling distribution percentages
+const HEAD_PERCENTAGE: f64 = 0.35; // 35% from beginning
+const TAIL_PERCENTAGE: f64 = 0.15; // 15% from end
+#[allow(dead_code)]
+const MIDDLE_PERCENTAGE: f64 = 0.50; // 50% from middle in chunks (calculated as remainder)
+const MIDDLE_CHUNK_PERCENTAGE: f64 = 0.05; // Each middle chunk is 5% of sample
 
 // Normalize encoding name to Python codec format
 fn normalize_encoding_name(encoding: &str) -> String {
@@ -245,44 +251,137 @@ fn detect_language_hints(text: &str) -> Vec<&'static str> {
     hints
 }
 
+/// Calculate the effective sample size based on file size and parameters
+fn calculate_sample_size(
+    file_size: u64,
+    min_sample_size: usize,
+    percentage_sample_size: f64,
+    max_sample_size: Option<usize>,
+) -> usize {
+    // For files smaller than min_sample_size, use entire file
+    if file_size <= min_sample_size as u64 {
+        return file_size as usize;
+    }
+
+    // Calculate percentage-based sample size
+    let percentage_size = (file_size as f64 * percentage_sample_size) as usize;
+
+    // Apply min constraint
+    let mut sample_size = percentage_size.max(min_sample_size);
+
+    // Apply max constraint if specified
+    if let Some(max_size) = max_sample_size {
+        sample_size = sample_size.min(max_size);
+    }
+
+    // Never exceed file size
+    sample_size.min(file_size as usize)
+}
+
+/// Read strategic samples from file without loading entire file into memory
+/// Returns a buffer containing samples from head, tail, and middle sections
+fn read_strategic_sample(
+    reader: &mut BufReader<File>,
+    file_size: u64,
+    sample_size: usize,
+) -> std::io::Result<Vec<u8>> {
+    let mut buffer = Vec::new();
+
+    // For very small files or when sample >= file size, read entire file
+    if sample_size >= file_size as usize {
+        reader.read_to_end(&mut buffer)?;
+        return Ok(buffer);
+    }
+
+    // Calculate section sizes
+    let head_size = (sample_size as f64 * HEAD_PERCENTAGE) as usize;
+    let tail_size = (sample_size as f64 * TAIL_PERCENTAGE) as usize;
+    let middle_total_size = sample_size - head_size - tail_size;
+
+    // Calculate number of middle chunks (each is 5% of sample)
+    let middle_chunk_size = (sample_size as f64 * MIDDLE_CHUNK_PERCENTAGE) as usize;
+    let num_middle_chunks = (middle_total_size as f64 / middle_chunk_size as f64).ceil() as usize;
+
+    // Read head section (35% from beginning)
+    let mut head_buffer = vec![0u8; head_size];
+    reader.seek(SeekFrom::Start(0))?;
+    let head_read = reader.read(&mut head_buffer)?;
+    buffer.extend_from_slice(&head_buffer[..head_read]);
+
+    // Calculate middle section boundaries (between head and tail)
+    let middle_start = head_size as u64;
+    let middle_end = file_size.saturating_sub(tail_size as u64);
+    let middle_length = middle_end.saturating_sub(middle_start);
+
+    // Read middle chunks distributed uniformly
+    if middle_length > 0 && num_middle_chunks > 0 {
+        for i in 0..num_middle_chunks {
+            // Calculate position for this chunk, distributed uniformly
+            let chunk_position =
+                middle_start + (middle_length * i as u64 / num_middle_chunks as u64);
+
+            // Calculate actual bytes to read for this chunk
+            let bytes_to_read =
+                middle_chunk_size.min((middle_end.saturating_sub(chunk_position)) as usize);
+
+            if bytes_to_read > 0 {
+                let mut chunk_buffer = vec![0u8; bytes_to_read];
+                reader.seek(SeekFrom::Start(chunk_position))?;
+                let chunk_read = reader.read(&mut chunk_buffer)?;
+                buffer.extend_from_slice(&chunk_buffer[..chunk_read]);
+            }
+        }
+    }
+
+    // Read tail section (15% from end)
+    let tail_start = file_size.saturating_sub(tail_size as u64);
+    let mut tail_buffer = vec![0u8; tail_size];
+    reader.seek(SeekFrom::Start(tail_start))?;
+    let tail_read = reader.read(&mut tail_buffer)?;
+    buffer.extend_from_slice(&tail_buffer[..tail_read]);
+
+    Ok(buffer)
+}
+
 /// Analyzes encoding and newline style from a file using streaming
 #[pyfunction]
-#[pyo3(signature = (file_path, max_sample_size=None))]
+#[pyo3(signature = (file_path, min_sample_size=1024*1024, percentage_sample_size=0.1, max_sample_size=None))]
 fn analyse_from_path_stream(
     file_path: String,
+    min_sample_size: usize,
+    percentage_sample_size: f64,
     max_sample_size: Option<usize>,
 ) -> PyResult<AnalysisResult> {
     let path = Path::new(&file_path);
     let file =
         File::open(path).map_err(|e| PyIOError::new_err(format!("Failed to open file: {}", e)))?;
 
-    let max_size = max_sample_size.unwrap_or(MAX_SAMPLE_SIZE);
+    // Get file size
+    let metadata = file
+        .metadata()
+        .map_err(|e| PyIOError::new_err(format!("Failed to get file metadata: {}", e)))?;
+    let file_size = metadata.len();
 
-    let mut reader = BufReader::new(file);
-    let mut buffer = Vec::new();
-    let mut total_read = 0;
-
-    // Read file in chunks
-    loop {
-        let mut chunk = vec![0u8; CHUNK_SIZE];
-        let bytes_read = reader
-            .read(&mut chunk)
-            .map_err(|e| PyIOError::new_err(format!("Failed to read file: {}", e)))?;
-
-        if bytes_read == 0 {
-            break;
-        }
-
-        buffer.extend_from_slice(&chunk[..bytes_read]);
-        total_read += bytes_read;
-
-        if total_read >= max_size {
-            break;
-        }
+    if file_size == 0 {
+        return Err(PyIOError::new_err("File is empty"));
     }
 
+    // Calculate effective sample size
+    let sample_size = calculate_sample_size(
+        file_size,
+        min_sample_size,
+        percentage_sample_size,
+        max_sample_size,
+    );
+
+    let mut reader = BufReader::new(file);
+
+    // Read strategic sample from file
+    let buffer = read_strategic_sample(&mut reader, file_size, sample_size)
+        .map_err(|e| PyIOError::new_err(format!("Failed to read file: {}", e)))?;
+
     if buffer.is_empty() {
-        return Err(PyIOError::new_err("File is empty"));
+        return Err(PyIOError::new_err("Failed to read any data from file"));
     }
 
     // Detect newline style
@@ -498,12 +597,14 @@ fn get_encoding_rs(encoding_name: &str) -> Option<&'static encoding_rs::Encoding
 /// This function processes files in chunks to maintain constant memory usage,
 /// making it suitable for very large files (10GB+) on systems with limited RAM (512MB).
 #[pyfunction]
-#[pyo3(signature = (file_path, output_path, target_encoding="utf-8", target_newlines="LF", max_sample_size=None))]
+#[pyo3(signature = (file_path, output_path, target_encoding="utf-8", target_newlines="LF", min_sample_size=1024*1024, percentage_sample_size=0.1, max_sample_size=None))]
 fn normalize_file_stream(
     file_path: String,
     output_path: String,
     target_encoding: &str,
     target_newlines: &str,
+    min_sample_size: usize,
+    percentage_sample_size: f64,
     max_sample_size: Option<usize>,
 ) -> PyResult<()> {
     // Validate target_newlines
@@ -520,7 +621,12 @@ fn normalize_file_stream(
     };
 
     // First, analyse the file to detect source encoding
-    let analysis = analyse_from_path_stream(file_path.clone(), max_sample_size)?;
+    let analysis = analyse_from_path_stream(
+        file_path.clone(),
+        min_sample_size,
+        percentage_sample_size,
+        max_sample_size,
+    )?;
 
     // Get source and target encodings
     let source_encoding = get_encoding_rs(&analysis.encoding).ok_or_else(|| {

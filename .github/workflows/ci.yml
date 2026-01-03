@@ -57,30 +57,44 @@ jobs:
             arch: x86_64
 
           # macOS - Intel x86_64
-          - os: macos-13
+          - os: macos-latest
             python-version: '3.10'
             arch: x86_64
-          - os: macos-13
+          - os: macos-latest
             python-version: '3.11'
             arch: x86_64
-          - os: macos-13
+          - os: macos-latest
             python-version: '3.12'
             arch: x86_64
-          - os: macos-13
+          - os: macos-latest
             python-version: '3.13'
             arch: x86_64
 
           # macOS - ARM64 (M1/M2/M3)
-          - os: macos-14
+          - os: macos-latest
             python-version: '3.10'
             arch: arm64
-          - os: macos-14
+          - os: macos-latest
             python-version: '3.11'
             arch: arm64
-          - os: macos-14
+          - os: macos-latest
             python-version: '3.12'
             arch: arm64
-          - os: macos-14
+          - os: macos-latest
+            python-version: '3.13'
+            arch: arm64
+
+          # macOS - ARM64 (M1/M2/M3/M4 - Sequoia)
+          - os: macos-latest
+            python-version: '3.10'
+            arch: arm64
+          - os: macos-latest
+            python-version: '3.11'
+            arch: arm64
+          - os: macos-latest
+            python-version: '3.12'
+            arch: arm64
+          - os: macos-latest
             python-version: '3.13'
             arch: arm64
 

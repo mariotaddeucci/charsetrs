@@ -8,6 +8,8 @@ from typing import Literal
 
 from charsetrs._internal import (
     analyse_from_path_stream as _analyse_from_path_stream_internal,
+)
+from charsetrs._internal import (
     normalize_file_stream as _normalize_file_stream_internal,
 )
 

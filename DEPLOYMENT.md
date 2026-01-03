@@ -1,16 +1,30 @@
 # PyPI Deployment Guide
 
-This repository includes a GitHub Actions workflow for automatically publishing the `charsetrs` package to PyPI.
+This repository includes a unified CI/CD GitHub Actions workflow that handles testing and deployment to PyPI.
 
 ## Overview
 
-The deployment workflow builds wheels for multiple platforms and architectures:
+The unified pipeline performs the following stages:
 
-- **Linux**: x86_64, aarch64 (ARM64)
-- **macOS**: x86_64 (Intel), aarch64 (Apple Silicon M1/M2/M3/M4)
-- **Windows**: x64, x86, aarch64 (ARM64)
+1. **Lint**: Code quality checks (runs first)
+2. **Test**: Parallel testing across all supported platforms grouped by OS
+   - Linux: Python 3.10, 3.11, 3.12, 3.13
+   - macOS: Python 3.10, 3.11, 3.12, 3.13
+   - Windows: Python 3.10, 3.11, 3.12, 3.13
+3. **Build**: Wheel compilation for multiple platforms and architectures (only after tests pass)
+   - Linux: x86_64, aarch64 (ARM64)
+   - macOS: x86_64 (Intel), aarch64 (Apple Silicon)
+   - Windows: x64, x86, aarch64 (ARM64)
+4. **Publish**: Deploy to PyPI (only when triggered by v* tags)
 
 The workflow uses PyO3's maturin-action for building Rust-based Python packages and OIDC for secure authentication with PyPI.
+
+## Workflow Behavior
+
+- **On Pull Requests**: Runs lint, tests, and builds wheels (no deployment)
+- **On Push to main**: Runs lint, tests, and builds wheels (no deployment)
+- **On Version Tags (v*)**: Runs lint, tests, builds wheels, AND deploys to PyPI
+- **Manual Trigger**: Can be triggered manually with optional deployment
 
 ## Setup Instructions
 
@@ -46,65 +60,100 @@ PyPI supports Trusted Publishing, which eliminates the need for manually managin
 
 ## Triggering a Deployment
 
-The workflow is triggered in two ways:
+The unified workflow runs on every push and pull request, but deployment only happens on version tags.
 
-### 1. Automatic deployment on version tags
+### Creating a Release
 
-When you push a tag starting with `v`, the workflow automatically runs:
+When you push a tag starting with `v`, the workflow automatically runs all stages including deployment:
 
 ```bash
+# Update version in both files
+# Edit pyproject.toml: version = "0.1.0"
+# Edit Cargo.toml: version = "0.1.0"
+
 # Create and push a version tag
+git add pyproject.toml Cargo.toml
+git commit -m "Bump version to 0.1.0"
+git push origin main
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-### 2. Manual deployment
+The workflow will:
+1. ✅ Run linter
+2. ✅ Run tests on Linux, macOS, and Windows
+3. ✅ Build wheels for all platforms
+4. ✅ **Deploy to PyPI** (only happens with v* tags)
 
-You can manually trigger the workflow from GitHub:
+### Testing Without Deployment
 
-1. Go to the **Actions** tab in your repository
-2. Select the "Deploy to PyPI" workflow
-3. Click **Run workflow**
-4. Select the branch or tag to deploy
-5. Click **Run workflow**
+Push to main branch or create a pull request:
+
+```bash
+git push origin main
+```
+
+The workflow will:
+1. ✅ Run linter
+2. ✅ Run tests on Linux, macOS, and Windows
+3. ✅ Build wheels for all platforms
+4. ⏭️  Skip deployment (no tag present)
 
 ## Workflow Details
 
-### Build Jobs
+### Stage 1: Lint
 
-The workflow consists of four parallel build jobs:
+Runs code quality checks using:
+- Python linting (ruff)
+- Rust formatting (cargo fmt)
+- Type checking (pyrefly)
 
-1. **Linux builds** (`linux`): Builds wheels for x86_64 and aarch64 using manylinux containers
-2. **Windows builds** (`windows`): Builds wheels for x64, x86, and aarch64
-3. **macOS builds** (`macos`): Builds wheels for x86_64 (Intel) and aarch64 (Apple Silicon)
-4. **Source distribution** (`sdist`): Creates a source distribution (.tar.gz)
+### Stage 2: Test (Parallel by OS)
+
+Three parallel job groups run tests:
+- **test-linux**: Tests on Ubuntu with Python 3.10-3.13
+- **test-windows**: Tests on Windows with Python 3.10-3.13
+- **test-macos**: Tests on macOS with Python 3.10-3.13
+
+All tests must pass before proceeding to the build stage.
+
+### Stage 3: Build (Parallel by OS)
+
+After tests pass, wheels are built in parallel:
+- **build-linux**: x86_64, aarch64 (uses manylinux)
+- **build-windows**: x64, x86, aarch64
+- **build-macos**: x86_64, aarch64
+- **build-sdist**: Source distribution
 
 Each job:
-- Uses PyO3's maturin-action for efficient Rust compilation
+- Uses PyO3's maturin-action for Rust compilation
 - Enables sccache for faster builds
 - Builds release-optimized wheels
-- Uploads artifacts for the publish job
+- Uploads artifacts
 
-### Publish Job
+### Stage 4: Publish (Conditional)
 
-After all builds complete successfully:
+Runs only when:
+- All builds complete successfully
+- Triggered by a tag matching `v*`
 
-1. Downloads all wheel artifacts and the source distribution
-2. Uses maturin to upload to PyPI via OIDC authentication
-3. Uses `--skip-existing` to avoid errors if a version is already published
+The publish job:
+1. Downloads all wheel artifacts and sdist
+2. Uses maturin to upload to PyPI via OIDC
+3. Uses `--skip-existing` to avoid errors on republish
 
 ## Version Management
 
-Update the version in `pyproject.toml` before creating a release:
+Update the version in both files before creating a release:
 
+**pyproject.toml:**
 ```toml
 [project]
 name = "charsetrs"
 version = "0.1.0"  # Update this
 ```
 
-Also update the version in `Cargo.toml` to keep them in sync:
-
+**Cargo.toml:**
 ```toml
 [package]
 name = "charsetrs"
@@ -113,10 +162,10 @@ version = "0.1.0"  # Update this
 
 ## Testing Before Release
 
-Before creating a release tag, ensure all tests pass:
+Before creating a release tag:
 
 ```bash
-# Run the full test suite
+# Run the full test suite locally
 uv run task test
 
 # Run linting
@@ -126,6 +175,14 @@ uv run task lint
 uv run maturin build --release
 ```
 
+Or push to a branch and let the CI/CD pipeline validate everything:
+
+```bash
+git push origin feature-branch
+```
+
+The workflow will run lint, tests, and builds without deploying.
+
 ## Troubleshooting
 
 ### Build Failures
@@ -134,6 +191,14 @@ If a build fails:
 1. Check the Actions tab for detailed logs
 2. Verify Rust dependencies compile on the target platform
 3. Test locally using the same maturin command
+4. Ensure all tests pass before builds run
+
+### Test Failures
+
+If tests fail:
+1. The build and deploy stages are skipped automatically
+2. Fix the failing tests
+3. Push changes to trigger the workflow again
 
 ### Publishing Failures
 
@@ -141,6 +206,7 @@ If publishing fails:
 1. Verify OIDC configuration on PyPI matches the workflow
 2. Check that the `pypi` environment exists in GitHub
 3. Ensure the version doesn't already exist on PyPI
+4. Confirm all builds completed successfully
 
 ### Platform-Specific Issues
 

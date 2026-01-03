@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from charset_normalizer import from_path as cn_from_path
+from charset_normalizer import from_path
 
 import charsetrs
 
@@ -12,7 +12,7 @@ DIR_PATH = Path(__file__).parent.absolute() / "data"
 def test_elementary_detection(
     file_path: Path,
 ):
-    expected = cn_from_path(file_path.as_posix())
+    expected = from_path(file_path.as_posix())
     expected_best = expected.best()
     if expected_best is None:
         pytest.skip(f"No charset detected by charset_normalizer for {file_path}")

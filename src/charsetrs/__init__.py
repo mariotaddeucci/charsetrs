@@ -3,6 +3,7 @@ Charsetrs - A Python library with Rust bindings for charset detection
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 from charsetrs._internal import analyse_from_path_stream as _analyse_from_path_stream_internal
@@ -23,7 +24,7 @@ class AnalysisResult:
     newlines: Literal["LF", "CRLF", "CR"]
 
 
-def analyse(file_path, max_sample_size=None):
+def analyse(file_path: str | Path, max_sample_size: int | None = None) -> AnalysisResult:
     """
     Analyse the encoding and newline style of a file.
 
@@ -54,8 +55,21 @@ def analyse(file_path, max_sample_size=None):
         >>> print(result.encoding)
         'windows_1252'
     """
-    rust_result = _analyse_from_path_stream_internal(str(file_path), max_sample_size)
-    return AnalysisResult(encoding=rust_result.encoding, newlines=rust_result.newlines)
+    if isinstance(file_path, str):
+        file_path = Path(file_path)
+
+    file_path = file_path.absolute()
+    if file_path.is_dir():
+        raise ValueError(f"Provided path '{file_path}' is a directory, expected a file path.")
+
+    if file_path.exists() is False:
+        raise FileNotFoundError(f"File '{file_path}' does not exist.")
+
+    rust_result = _analyse_from_path_stream_internal(file_path.as_posix(), max_sample_size)
+    return AnalysisResult(
+        encoding=rust_result.encoding,
+        newlines=rust_result.newlines,
+    )
 
 
 def normalize(file_path, output, encoding="utf-8", newlines="LF", max_sample_size=None):

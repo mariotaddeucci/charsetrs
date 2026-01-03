@@ -87,15 +87,17 @@ def _encodings_are_equivalent(source_enc: str, target_enc: str) -> bool:
 
     # Map common encoding aliases
     encoding_aliases = {
-        "utf_8": ["utf8", "utf_8"],
-        "utf_16": ["utf16", "utf_16"],
-        "latin_1": ["iso_8859_1", "latin1", "latin_1"],
-        "cp1252": ["windows_1252", "cp1252"],
+        "utf_8": ["utf8"],
+        "utf_16": ["utf16"],
+        "latin_1": ["iso_8859_1", "latin1"],
+        "cp1252": ["windows_1252"],
     }
 
     # Check if both encodings are aliases of the same canonical encoding
-    for _canonical, aliases in encoding_aliases.items():
-        if source_normalized in aliases and target_normalized in aliases:
+    for canonical, aliases in encoding_aliases.items():
+        # Include canonical name in the set of valid aliases
+        all_aliases = {canonical, *aliases}
+        if source_normalized in all_aliases and target_normalized in all_aliases:
             return True
 
     return False

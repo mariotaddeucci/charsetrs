@@ -4,7 +4,6 @@ Tests for memory efficiency of the streaming normalize function
 
 import os
 import tempfile
-from pathlib import Path
 
 import charsetrs
 
@@ -12,7 +11,7 @@ import charsetrs
 def test_normalize_large_file_memory_efficiency():
     """
     Test that normalize can handle large files without loading everything into memory.
-    
+
     This test creates a 10MB file (which is small but verifies streaming works).
     For real-world usage, the streaming implementation will handle files of any size
     with constant memory usage.
@@ -74,7 +73,7 @@ def test_normalize_preserves_content():
 
         # Content should be the same, just newlines changed
         assert len(original_lines) == len(normalized_lines)
-        for orig, norm in zip(original_lines, normalized_lines):
+        for orig, norm in zip(original_lines, normalized_lines, strict=True):
             assert orig == norm, f"Line mismatch: '{orig}' != '{norm}'"
 
         # Verify CRLF is present

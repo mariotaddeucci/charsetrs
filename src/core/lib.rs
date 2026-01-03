@@ -457,6 +457,9 @@ fn analyse_from_path_stream(
 }
 
 // Helper function to get encoding_rs::Encoding from encoding name
+// Note: This maps Python/user-facing encoding names to encoding_rs labels.
+// This is separate from normalize_encoding_name which converts TO Python-compatible names.
+// Here we convert FROM user input TO encoding_rs labels (e.g., "utf-8", "windows-1252").
 fn get_encoding_rs(encoding_name: &str) -> Option<&'static encoding_rs::Encoding> {
     let normalized = encoding_name.to_lowercase().replace("-", "_");
 
@@ -608,6 +611,10 @@ fn process_and_write_chunk(
     pending_cr: &mut bool,
     is_last: bool,
 ) -> PyResult<()> {
+    // Convert newline bytes to string once (safe because we validate newline_bytes is valid UTF-8)
+    let newline_str =
+        std::str::from_utf8(newline_bytes).expect("newline_bytes should always be valid UTF-8");
+
     // Process text character by character to handle newlines
     let mut output = String::with_capacity(text.len());
     let chars: Vec<char> = text.chars().collect();
@@ -617,12 +624,12 @@ fn process_and_write_chunk(
             // Previous chunk ended with CR
             if ch == '\n' {
                 // This is CRLF split across chunks, output target newline
-                output.push_str(std::str::from_utf8(newline_bytes).unwrap());
+                output.push_str(newline_str);
                 *pending_cr = false;
                 continue;
             } else {
                 // Previous CR was standalone, output it and continue
-                output.push_str(std::str::from_utf8(newline_bytes).unwrap());
+                output.push_str(newline_str);
                 *pending_cr = false;
             }
         }
@@ -632,13 +639,13 @@ fn process_and_write_chunk(
                 // Check if next char is \n
                 if i + 1 < chars.len() && chars[i + 1] == '\n' {
                     // CRLF - will handle \n in next iteration
-                    output.push_str(std::str::from_utf8(newline_bytes).unwrap());
+                    output.push_str(newline_str);
                 } else if i + 1 == chars.len() && !is_last {
                     // CR at end of chunk, might be part of CRLF
                     *pending_cr = true;
                 } else {
                     // Standalone CR
-                    output.push_str(std::str::from_utf8(newline_bytes).unwrap());
+                    output.push_str(newline_str);
                 }
             }
             '\n' => {
@@ -648,7 +655,7 @@ fn process_and_write_chunk(
                     continue;
                 } else {
                     // Standalone LF
-                    output.push_str(std::str::from_utf8(newline_bytes).unwrap());
+                    output.push_str(newline_str);
                 }
             }
             _ => {

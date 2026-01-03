@@ -4,10 +4,14 @@ Charsetrs - A Python library with Rust bindings for charset detection
 
 from dataclasses import dataclass
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 from typing import Literal
 
-from charsetrs._internal import analyse_from_path_stream as _analyse_from_path_stream_internal
+from charsetrs._internal import (
+    analyse_from_path_stream as _analyse_from_path_stream_internal,
+)
+from charsetrs._internal import (
+    normalize_file_stream as _normalize_file_stream_internal,
+)
 
 __all__ = [
     "analyse",
@@ -73,6 +77,30 @@ def analyse(file_path: str | Path, max_sample_size: int | None = None) -> Analys
     )
 
 
+def _encodings_are_equivalent(source_enc: str, target_enc: str) -> bool:
+    """Check if two encoding names are equivalent, considering common aliases."""
+    source_normalized = source_enc.lower().replace("-", "_")
+    target_normalized = target_enc.lower().replace("-", "_")
+
+    if source_normalized == target_normalized:
+        return True
+
+    # Map common encoding aliases
+    encoding_aliases = {
+        "utf_8": ["utf8", "utf_8"],
+        "utf_16": ["utf16", "utf_16"],
+        "latin_1": ["iso_8859_1", "latin1", "latin_1"],
+        "cp1252": ["windows_1252", "cp1252"],
+    }
+
+    # Check if both encodings are aliases of the same canonical encoding
+    for _canonical, aliases in encoding_aliases.items():
+        if source_normalized in aliases and target_normalized in aliases:
+            return True
+
+    return False
+
+
 def normalize(
     file_path: str | Path,
     encoding: str = "utf-8",
@@ -80,14 +108,14 @@ def normalize(
     max_sample_size: int | None = None,
 ):
     """
-    Normalize a file by converting its encoding and newline style, saving to an output file.
+    Normalize a file by converting its encoding and newline style in-place.
 
-    This function detects the source encoding and newlines, then converts the file
-    to the specified target encoding and newline style.
+    This function uses streaming to process files efficiently, making it suitable
+    for very large files (10GB+) with constant memory usage. The file is modified
+    in-place using a temporary file and atomic rename.
 
     Args:
         file_path: Path to the input file (string or Path object)
-        output: Path to the output file where normalized content will be written
         encoding: Target encoding name (e.g., 'utf-8', 'utf-16', 'latin-1'). Default: 'utf-8'
         newlines: Target newline style ('LF', 'CRLF', or 'CR'). Default: 'LF'
         max_sample_size: Optional. Maximum number of bytes to read for encoding detection.
@@ -96,110 +124,74 @@ def normalize(
 
     Raises:
         IOError: If file cannot be read or written
-        ValueError: If encoding conversion fails
+        ValueError: If encoding conversion fails or invalid newlines value
         LookupError: If target encoding is invalid
 
     Examples:
         >>> import charsetrs
-        >>> charsetrs.normalize("file.txt", output="file_utf8.txt", encoding="utf-8", newlines="LF")
+        >>> charsetrs.normalize("file.txt", encoding="utf-8", newlines="LF")
 
         >>> # Normalize to Windows-style with specific encoding
-        >>> charsetrs.normalize("file.txt", output="file_win.txt", encoding="windows-1252", newlines="CRLF")
+        >>> charsetrs.normalize("file.txt", encoding="windows-1252", newlines="CRLF")
 
         >>> # For large files with custom sample size
-        >>> charsetrs.normalize("large.txt", output="large_utf8.txt",
-        ...                      encoding="utf-8", newlines="LF", max_sample_size=2*1024*1024)
+        >>> charsetrs.normalize("large.txt", encoding="utf-8", newlines="LF", max_sample_size=2*1024*1024)
     """
-    newline_map = {"LF": "\n", "CRLF": "\r\n", "CR": "\r"}
-    try:
-        target_newline = newline_map[newlines]
-    except KeyError as err:
-        raise ValueError(f"Invalid newlines value '{newlines}'. Must be 'LF', 'CRLF', or 'CR'") from err
+    # Validate inputs
+    if isinstance(file_path, str):
+        file_path = Path(file_path)
 
+    file_path = file_path.absolute()
+    if file_path.is_dir():
+        raise ValueError(f"Provided path '{file_path}' is a directory, expected a file path.")
+
+    if not file_path.exists():
+        raise FileNotFoundError(f"File '{file_path}' does not exist.")
+
+    # Check if normalization is needed
     result = analyse(file_path, max_sample_size)
-    if result.encoding == encoding and result.newlines == newlines:
+
+    # Check if encodings are equivalent and newlines match
+    if _encodings_are_equivalent(result.encoding, encoding) and result.newlines == newlines:
+        # No normalization needed
         return
 
-    source_encoding = result.encoding
+    # Create temporary output file in the same directory for atomic rename
+    temp_output = file_path.parent / f".{file_path.name}.tmp"
 
-    # Normalize encoding names for Python codec
-    encoding_map = {
-        "utf_8": "utf-8",
-        "utf8": "utf-8",
-        "utf_16": "utf-16",
-        "utf16": "utf-16",
-        "utf_16_le": "utf-16-le",
-        "utf_16_be": "utf-16-be",
-        "utf_16le": "utf-16-le",
-        "utf_16be": "utf-16-be",
-        "utf16le": "utf-16-le",
-        "utf16be": "utf-16-be",
-        "iso_8859_1": "latin-1",
-        "latin_1": "latin-1",
-        "latin1": "latin-1",
-        "windows_1252": "cp1252",
-        "cp1252": "cp1252",
-        "windows_1256": "cp1256",
-        "cp1256": "cp1256",
-        "windows_1255": "cp1255",
-        "cp1255": "cp1255",
-        "windows_1253": "cp1253",
-        "cp1253": "cp1253",
-        "windows_1251": "cp1251",
-        "cp1251": "cp1251",
-        "windows_1254": "cp1254",
-        "cp1254": "cp1254",
-        "windows_1250": "cp1250",
-        "cp1250": "cp1250",
-        "windows_949": "cp949",
-        "cp949": "cp949",
-        "big5": "big5",
-        "gbk": "gbk",
-        "gb2312": "gb2312",
-        "shift_jis": "shift_jis",
-        "euc_jp": "euc_jp",
-        "euc_kr": "euc_kr",
-        "mac_cyrillic": "mac_cyrillic",
-        "mac_roman": "mac_roman",
-        "koi8_r": "koi8_r",
-        "koi8_u": "koi8_u",
-        "ascii": "ascii",
-        "us_ascii": "ascii",
-    }
-
-    # Normalize source encoding
-    source_normalized = source_encoding.lower().replace("-", "_")
-    python_source_encoding = encoding_map.get(source_normalized, source_encoding)
-
-    target_normalized = encoding.lower().replace("-", "_")
-    python_target_encoding = encoding_map.get(target_normalized, encoding)
-
-    file_path = Path(file_path).absolute()
-
-    with file_path.open("rb") as f:
-        raw_content = f.read()
-    content = raw_content.decode(python_source_encoding)
-    content = content.replace("\r\n", "\n").replace("\r", "\n")
-    if newlines != "LF":
-        content = content.replace("\n", target_newline)
-
-    # Write to temporary file
-    with NamedTemporaryFile(mode="w", delete=False, suffix=".txt", newline="") as temp_file:
-        temp_file.write(content)
-        temp_file_path = Path(temp_file.name)
-
-    # Re-encode with target encoding
-    with temp_file_path.open("r", encoding="utf-8", newline="") as f:
-        content = f.read()
-    with temp_file_path.open("wb") as f:
-        f.write(content.encode(python_target_encoding))
-
-    original_path = file_path.absolute()
     try:
-        file_path = file_path.rename(file_path.with_suffix(file_path.suffix + ".bak"))
-        temp_file_path.rename(original_path)
-        file_path.unlink()
+        # Call Rust streaming normalize function
+        try:
+            _normalize_file_stream_internal(
+                file_path.as_posix(),
+                temp_output.as_posix(),
+                encoding,
+                newlines,
+                max_sample_size,
+            )
+        except OSError as e:
+            # Convert OSError from Rust to ValueError for invalid newlines
+            error_msg = str(e)
+            if "Invalid newlines value" in error_msg:
+                raise ValueError(error_msg) from e
+            raise
+
+        # Create backup of original file
+        backup_path = file_path.with_suffix(file_path.suffix + ".bak")
+        file_path.rename(backup_path)
+
+        try:
+            # Atomically replace original with normalized version
+            temp_output.rename(file_path)
+            # Remove backup if successful
+            backup_path.unlink()
+        except Exception:
+            # Restore original file if rename failed
+            backup_path.rename(file_path)
+            raise
+
     except Exception:
-        if original_path.as_posix() != file_path.as_posix():
-            file_path.rename(original_path)
+        # Clean up temporary file if it exists
+        if temp_output.exists():
+            temp_output.unlink()
         raise

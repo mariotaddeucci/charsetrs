@@ -1,7 +1,7 @@
 use pyo3::exceptions::PyIOError;
 use pyo3::prelude::*;
 use std::fs::File;
-use std::io::{BufReader, Read};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
 
 // Constantes para controle de memória
@@ -456,10 +456,244 @@ fn analyse_from_path_stream(
     })
 }
 
+// Helper function to get encoding_rs::Encoding from encoding name
+// Note: This maps Python/user-facing encoding names to encoding_rs labels.
+// This is separate from normalize_encoding_name which converts TO Python-compatible names.
+// Here we convert FROM user input TO encoding_rs labels (e.g., "utf-8", "windows-1252").
+fn get_encoding_rs(encoding_name: &str) -> Option<&'static encoding_rs::Encoding> {
+    let normalized = encoding_name.to_lowercase().replace("-", "_");
+
+    let label = match normalized.as_str() {
+        "utf_8" | "utf8" => "utf-8",
+        "utf_16" | "utf16" => "utf-16",
+        "utf_16_le" | "utf16_le" | "utf_16le" | "utf16le" => "utf-16le",
+        "utf_16_be" | "utf16_be" | "utf_16be" | "utf16be" => "utf-16be",
+        "iso_8859_1" | "iso8859_1" | "latin_1" | "latin1" => "iso-8859-1",
+        "windows_1252" | "cp1252" | "cp_1252" => "windows-1252",
+        "windows_1256" | "cp1256" | "cp_1256" => "windows-1256",
+        "windows_1255" | "cp1255" | "cp_1255" => "windows-1255",
+        "windows_1253" | "cp1253" | "cp_1253" => "windows-1253",
+        "windows_1251" | "cp1251" | "cp_1251" => "windows-1251",
+        "windows_1254" | "cp1254" | "cp_1254" => "windows-1254",
+        "windows_1250" | "cp1250" | "cp_1250" => "windows-1250",
+        "windows_949" | "cp949" | "cp_949" => "windows-949",
+        "shift_jis" | "shift_jisx0213" | "cp932" => "shift_jis",
+        "euc_jp" | "eucjp" => "euc-jp",
+        "euc_kr" | "euckr" => "euc-kr",
+        "gb2312" | "gb_2312" => "gb2312",
+        "gbk" => "gbk",
+        "big5" => "big5",
+        "mac_roman" | "macintosh" => "macintosh",
+        "mac_cyrillic" | "x_mac_cyrillic" => "x-mac-cyrillic",
+        "koi8_r" | "koi8r" => "koi8-r",
+        "koi8_u" | "koi8u" => "koi8-u",
+        other => other,
+    };
+
+    encoding_rs::Encoding::for_label(label.as_bytes())
+}
+
+/// Normalize a file by converting its encoding and newline style using streaming
+///
+/// This function processes files in chunks to maintain constant memory usage,
+/// making it suitable for very large files (10GB+) on systems with limited RAM (512MB).
+#[pyfunction]
+#[pyo3(signature = (file_path, output_path, target_encoding="utf-8", target_newlines="LF", max_sample_size=None))]
+fn normalize_file_stream(
+    file_path: String,
+    output_path: String,
+    target_encoding: &str,
+    target_newlines: &str,
+    max_sample_size: Option<usize>,
+) -> PyResult<()> {
+    // Validate target_newlines
+    let newline_bytes: &[u8] = match target_newlines {
+        "LF" => b"\n",
+        "CRLF" => b"\r\n",
+        "CR" => b"\r",
+        _ => {
+            return Err(PyIOError::new_err(format!(
+                "Invalid newlines value '{}'. Must be 'LF', 'CRLF', or 'CR'",
+                target_newlines
+            )))
+        }
+    };
+
+    // First, analyse the file to detect source encoding
+    let analysis = analyse_from_path_stream(file_path.clone(), max_sample_size)?;
+
+    // Get source and target encodings
+    let source_encoding = get_encoding_rs(&analysis.encoding).ok_or_else(|| {
+        PyIOError::new_err(format!(
+            "Unsupported source encoding: {}",
+            analysis.encoding
+        ))
+    })?;
+
+    let target_encoding_rs = get_encoding_rs(target_encoding).ok_or_else(|| {
+        PyIOError::new_err(format!("Unsupported target encoding: {}", target_encoding))
+    })?;
+
+    // Open input and output files
+    let input_path = Path::new(&file_path);
+    let output_path_obj = Path::new(&output_path);
+
+    let input_file = File::open(input_path)
+        .map_err(|e| PyIOError::new_err(format!("Failed to open input file: {}", e)))?;
+    let output_file = File::create(output_path_obj)
+        .map_err(|e| PyIOError::new_err(format!("Failed to create output file: {}", e)))?;
+
+    let mut reader = BufReader::new(input_file);
+    let mut writer = BufWriter::new(output_file);
+
+    // Create decoder and encoder
+    let mut decoder = source_encoding.new_decoder();
+    let mut encoder = target_encoding_rs.new_encoder();
+
+    // Buffers for streaming processing
+    let mut input_buffer = vec![0u8; CHUNK_SIZE];
+    let mut decode_buffer = String::with_capacity(CHUNK_SIZE * 2);
+    let mut encode_buffer = vec![0u8; CHUNK_SIZE * 4]; // Larger to accommodate multi-byte encodings
+
+    // State for newline conversion
+    let mut pending_cr = false; // Track if previous chunk ended with CR
+
+    loop {
+        // Read chunk from input
+        let bytes_read = reader
+            .read(&mut input_buffer)
+            .map_err(|e| PyIOError::new_err(format!("Failed to read from input file: {}", e)))?;
+
+        let is_last = bytes_read == 0;
+
+        // Decode chunk
+        decode_buffer.clear();
+        let (result, _bytes_read, _had_errors) =
+            decoder.decode_to_string(&input_buffer[..bytes_read], &mut decode_buffer, is_last);
+
+        if result == encoding_rs::CoderResult::OutputFull {
+            return Err(PyIOError::new_err("Decode buffer too small"));
+        }
+
+        // Process and write decoded chunk with newline conversion
+        if !decode_buffer.is_empty() {
+            process_and_write_chunk(
+                &decode_buffer,
+                &mut encoder,
+                &mut encode_buffer,
+                &mut writer,
+                newline_bytes,
+                &mut pending_cr,
+                is_last,
+            )?;
+        }
+
+        if is_last {
+            break;
+        }
+    }
+
+    // Flush the writer
+    writer
+        .flush()
+        .map_err(|e| PyIOError::new_err(format!("Failed to flush output: {}", e)))?;
+
+    Ok(())
+}
+
+// Helper function to process a text chunk, convert newlines, and write to output
+fn process_and_write_chunk(
+    text: &str,
+    encoder: &mut encoding_rs::Encoder,
+    encode_buffer: &mut Vec<u8>,
+    writer: &mut BufWriter<File>,
+    newline_bytes: &[u8],
+    pending_cr: &mut bool,
+    is_last: bool,
+) -> PyResult<()> {
+    // Convert newline bytes to string once (safe because we validate newline_bytes is valid UTF-8)
+    let newline_str =
+        std::str::from_utf8(newline_bytes).expect("newline_bytes should always be valid UTF-8");
+
+    // Process text character by character to handle newlines
+    let mut output = String::with_capacity(text.len());
+    let chars: Vec<char> = text.chars().collect();
+
+    for (i, &ch) in chars.iter().enumerate() {
+        if *pending_cr {
+            // Previous chunk ended with CR
+            if ch == '\n' {
+                // This is CRLF split across chunks, output target newline
+                output.push_str(newline_str);
+                *pending_cr = false;
+                continue;
+            } else {
+                // Previous CR was standalone, output it and continue
+                output.push_str(newline_str);
+                *pending_cr = false;
+            }
+        }
+
+        match ch {
+            '\r' => {
+                // Check if next char is \n
+                if i + 1 < chars.len() && chars[i + 1] == '\n' {
+                    // CRLF - will handle \n in next iteration
+                    output.push_str(newline_str);
+                } else if i + 1 == chars.len() && !is_last {
+                    // CR at end of chunk, might be part of CRLF
+                    *pending_cr = true;
+                } else {
+                    // Standalone CR
+                    output.push_str(newline_str);
+                }
+            }
+            '\n' => {
+                // Check if this is part of CRLF (previous char was \r)
+                if i > 0 && chars[i - 1] == '\r' {
+                    // Already handled as CRLF, skip
+                    continue;
+                } else {
+                    // Standalone LF
+                    output.push_str(newline_str);
+                }
+            }
+            _ => {
+                output.push(ch);
+            }
+        }
+    }
+
+    // Encode and write the processed text
+    if !output.is_empty() {
+        let mut start = 0;
+        loop {
+            let (result, bytes_read, bytes_written, _had_errors) =
+                encoder.encode_from_utf8(&output[start..], encode_buffer, is_last);
+
+            // Write encoded bytes
+            if bytes_written > 0 {
+                writer
+                    .write_all(&encode_buffer[..bytes_written])
+                    .map_err(|e| PyIOError::new_err(format!("Failed to write to output: {}", e)))?;
+            }
+
+            start += bytes_read;
+
+            if result == encoding_rs::CoderResult::InputEmpty {
+                break;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// A Python module implemented in Rust.
 #[pymodule]
 fn _internal(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(analyse_from_path_stream, m)?)?;
+    m.add_function(wrap_pyfunction!(normalize_file_stream, m)?)?;
     m.add_class::<AnalysisResult>()?;
     Ok(())
 }

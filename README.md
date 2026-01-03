@@ -206,7 +206,7 @@ uv run task lint_rust
 ├── src/
 │   ├── charsetrs/         # Python package
 │   │   └── __init__.py    # Python API
-│   └── core/              # Rust source code
+│   └── charsetrs_core/        # Rust source code
 │       └── lib.rs         # Rust encoding detection
 ├── tests/                 # Test suite
 │   ├── test_charsetrs_api.py

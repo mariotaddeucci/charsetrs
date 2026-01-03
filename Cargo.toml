@@ -6,7 +6,7 @@ edition = "2021"
 [lib]
 name = "charsetrs"
 crate-type = ["cdylib"]
-path = "src/core/lib.rs"
+path = "src/charsetrs_core/lib.rs"
 
 [dependencies]
 pyo3 = { version = "0.22", features = ["extension-module"] }

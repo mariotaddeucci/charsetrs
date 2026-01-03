@@ -159,7 +159,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist --find-interpreter --skip pypy
+          args: --release --out dist --find-interpreter
           sccache: 'true'
           manylinux: auto
 
@@ -175,7 +175,7 @@ jobs:
     needs: test-windows
     strategy:
       matrix:
-        target: [x64, x86]
+        target: [x64, x86, aarch64]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -184,13 +184,13 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-          architecture: ${{ matrix.target }}
+          architecture: ${{ matrix.target == 'aarch64' && 'x64' || matrix.target }}
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist --find-interpreter --skip pypy
+          args: --release --out dist --find-interpreter
           sccache: 'true'
 
       - name: Upload wheels
@@ -219,7 +219,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist --find-interpreter --skip pypy
+          args: --release --out dist --find-interpreter
           sccache: 'true'
 
       - name: Upload wheels

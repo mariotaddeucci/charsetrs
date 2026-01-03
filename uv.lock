@@ -95,7 +95,7 @@ dev = [
 [package.metadata.requires-dev]
 dev = [
     { name = "charset-normalizer", specifier = ">=3.4.4" },
-    { name = "maturin", specifier = ">=1.0,<2.0" },
+    { name = "maturin", specifier = ">=1.10.2,<2.0" },
     { name = "pyrefly", specifier = ">=0.46.3" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "ruff", specifier = ">=0.14.10" },

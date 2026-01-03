@@ -9,6 +9,6 @@ crate-type = ["cdylib"]
 path = "src/charsetrs_core/lib.rs"
 
 [dependencies]
-pyo3 = { version = "0.23", features = ["extension-module"] }
-encoding_rs = "0.8"
-chardet = "0.2"
+pyo3 = { version = "0.27", features = ["extension-module"] }
+encoding_rs = "0.8.35"
+chardet = "0.2.4"

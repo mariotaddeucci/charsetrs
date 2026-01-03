@@ -8,53 +8,62 @@ version = "0.1.0"
 description = "A Python library with Rust bindings for charset detection"
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
-license = {text = "MIT"}
-authors = [
-    {name = "Mario Taddeucci"}
-]
+license = { text = "MIT" }
+authors = [{ name = "Mario Taddeucci" }]
 classifiers = [
-    "Programming Language :: Python",
-    "Programming Language :: Rust",
-    "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Rust",
 ]
 
 [dependency-groups]
 dev = [
-    "charset-normalizer>=3.4.4",
-    "maturin>=1.10.2,<2.0",
-    "pyrefly>=0.46.3",
-    "pytest>=9.0.2",
-    "ruff>=0.14.10",
-    "taskipy>=1.14.1",
+  "charset-normalizer>=3.4.4",
+  "maturin>=1.10.2,<2.0",
+  "pyrefly>=0.46.3",
+  "pytest>=9.0.2",
+  "ruff>=0.14.10",
+  "taskipy>=1.14.1",
+  "tombi>=0.7.14",
 ]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
-python-source = "src"
 module-name = "charsetrs._internal"
+python-source = "src"
 skip = ["pypy*"]
 
 [tool.ruff]
 line-length = 120
-lint.extend-select = ["E", "F", "W", "C90", "B", "I", "N", "Q", "S", "UP", "YTT"]
+lint.extend-select = [
+  "E",
+  "F",
+  "W",
+  "C90",
+  "B",
+  "I",
+  "N",
+  "Q",
+  "S",
+  "UP",
+  "YTT"
+]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101", "B017"]
 
 [tool.taskipy.tasks]
-compile = "maturin develop --release"
-build = "maturin build --release"
-test = "pytest -v"
+format = "ruff format . && cargo fmt && tombi format"
 lint = "ruff check . && ruff format --check . && pyrefly check . && cargo fmt --check"
-format = "ruff format . && cargo fmt"
+test = "maturin build --release && pytest -v"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
 [tool.pyrefly]
-replace-imports-with-any= ["charsetrs._internal"]
+replace-imports-with-any = ["charsetrs._internal"]

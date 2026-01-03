@@ -5,14 +5,12 @@ Charsetrs - A Python library with Rust bindings for charset detection
 from dataclasses import dataclass
 from typing import Literal
 
-from charsetrs._internal import CharsetMatch
 from charsetrs._internal import analyse_from_path_stream as _analyse_from_path_stream_internal
 
 __all__ = [
     "analyse",
     "normalize",
     "AnalysisResult",
-    "CharsetMatch",
 ]
 __version__ = "0.1.0"
 

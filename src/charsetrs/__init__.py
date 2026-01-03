@@ -4,6 +4,7 @@ Charsetrs - A Python library with Rust bindings for charset detection
 
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Literal
 
 from charsetrs._internal import analyse_from_path_stream as _analyse_from_path_stream_internal
@@ -72,7 +73,12 @@ def analyse(file_path: str | Path, max_sample_size: int | None = None) -> Analys
     )
 
 
-def normalize(file_path, output, encoding="utf-8", newlines="LF", max_sample_size=None):
+def normalize(
+    file_path: str | Path,
+    encoding: str = "utf-8",
+    newlines: Literal["LF", "CRLF", "CR"] = "LF",
+    max_sample_size: int | None = None,
+):
     """
     Normalize a file by converting its encoding and newline style, saving to an output file.
 
@@ -104,8 +110,16 @@ def normalize(file_path, output, encoding="utf-8", newlines="LF", max_sample_siz
         >>> charsetrs.normalize("large.txt", output="large_utf8.txt",
         ...                      encoding="utf-8", newlines="LF", max_sample_size=2*1024*1024)
     """
-    # Detect the source encoding
+    newline_map = {"LF": "\n", "CRLF": "\r\n", "CR": "\r"}
+    try:
+        target_newline = newline_map[newlines]
+    except KeyError as err:
+        raise ValueError(f"Invalid newlines value '{newlines}'. Must be 'LF', 'CRLF', or 'CR'") from err
+
     result = analyse(file_path, max_sample_size)
+    if result.encoding == encoding and result.newlines == newlines:
+        return
+
     source_encoding = result.encoding
 
     # Normalize encoding names for Python codec
@@ -157,41 +171,35 @@ def normalize(file_path, output, encoding="utf-8", newlines="LF", max_sample_siz
     source_normalized = source_encoding.lower().replace("-", "_")
     python_source_encoding = encoding_map.get(source_normalized, source_encoding)
 
-    # Normalize target encoding
     target_normalized = encoding.lower().replace("-", "_")
     python_target_encoding = encoding_map.get(target_normalized, encoding)
 
-    # Map newline styles to Python newline parameter
-    newline_map = {
-        "LF": "\n",
-        "CRLF": "\r\n",
-        "CR": "\r",
-    }
+    file_path = Path(file_path).absolute()
 
-    if newlines not in newline_map:
-        raise ValueError(f"Invalid newlines value '{newlines}'. Must be 'LF', 'CRLF', or 'CR'")
+    with file_path.open("rb") as f:
+        raw_content = f.read()
+    content = raw_content.decode(python_source_encoding)
+    content = content.replace("\r\n", "\n").replace("\r", "\n")
+    if newlines != "LF":
+        content = content.replace("\n", target_newline)
 
-    target_newline = newline_map[newlines]
+    # Write to temporary file
+    with NamedTemporaryFile(mode="w", delete=False, suffix=".txt", newline="") as temp_file:
+        temp_file.write(content)
+        temp_file_path = Path(temp_file.name)
 
+    # Re-encode with target encoding
+    with temp_file_path.open("r", encoding="utf-8", newline="") as f:
+        content = f.read()
+    with temp_file_path.open("wb") as f:
+        f.write(content.encode(python_target_encoding))
+
+    original_path = file_path.absolute()
     try:
-        # Read the entire file with detected encoding in binary mode to preserve newlines
-        with open(file_path, "rb") as f:
-            raw_content = f.read()
-
-        # Decode with source encoding
-        content = raw_content.decode(python_source_encoding)
-
-        # Normalize newlines to target style
-        # First normalize all to \n, then convert to target
-        content = content.replace("\r\n", "\n").replace("\r", "\n")
-        if newlines != "LF":
-            content = content.replace("\n", target_newline)
-
-        # Write to output file with target encoding in binary mode to preserve our newlines
-        with open(output, "wb") as f:
-            f.write(content.encode(python_target_encoding))
-
-    except (UnicodeDecodeError, UnicodeEncodeError, LookupError) as e:
-        raise ValueError(f"Cannot normalize file from '{source_encoding}' to '{encoding}': {str(e)}") from e
-    except OSError as e:
-        raise OSError(f"Cannot read or write file: {str(e)}") from e
+        file_path = file_path.rename(file_path.with_suffix(file_path.suffix + ".bak"))
+        temp_file_path.rename(original_path)
+        file_path.unlink()
+    except Exception:
+        if original_path.as_posix() != file_path.as_posix():
+            file_path.rename(original_path)
+        raise

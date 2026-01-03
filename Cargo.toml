@@ -1,0 +1,13 @@
+[package]
+name = "charset-normalizer-rs"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "charset_normalizer_rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module"] }
+encoding_rs = "0.8"
+chardet = "0.2"

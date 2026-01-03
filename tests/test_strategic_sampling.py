@@ -174,7 +174,9 @@ def test_large_file_with_strategic_sampling():
     # Create a 20MB file
     test_size_mb = 20
     line_content = "This is a test line with content\n"
-    lines_needed = (test_size_mb * 1024 * 1024) // len(line_content.encode("utf-8"))
+    line_bytes = len(line_content.encode("utf-8"))
+    # Use ceiling division to ensure we meet or exceed the target size
+    lines_needed = -(-test_size_mb * 1024 * 1024 // line_bytes)  # Ceiling division trick
 
     with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".txt") as f:
         for _ in range(lines_needed):

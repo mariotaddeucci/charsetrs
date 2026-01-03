@@ -11,7 +11,7 @@ const CHUNK_SIZE: usize = 8192; // 8KB per chunk
 const HEAD_PERCENTAGE: f64 = 0.35; // 35% from beginning
 const TAIL_PERCENTAGE: f64 = 0.15; // 15% from end
 #[allow(dead_code)]
-const MIDDLE_PERCENTAGE: f64 = 0.50; // 50% from middle in chunks (calculated as remainder)
+const MIDDLE_PERCENTAGE: f64 = 0.50; // 50% from middle (kept for documentation; calculated as sample_size - head_size - tail_size)
 const MIDDLE_CHUNK_PERCENTAGE: f64 = 0.05; // Each middle chunk is 5% of sample
 
 // Normalize encoding name to Python codec format
@@ -316,9 +316,10 @@ fn read_strategic_sample(
     // Read middle chunks distributed uniformly
     if middle_length > 0 && num_middle_chunks > 0 {
         for i in 0..num_middle_chunks {
-            // Calculate position for this chunk, distributed uniformly
-            let chunk_position =
-                middle_start + (middle_length * i as u64 / num_middle_chunks as u64);
+            // Calculate position for this chunk, distributed uniformly using floating-point arithmetic
+            // to avoid uneven distribution from integer division
+            let chunk_position = middle_start
+                + ((middle_length as f64 * i as f64) / num_middle_chunks as f64) as u64;
 
             // Calculate actual bytes to read for this chunk
             let bytes_to_read =

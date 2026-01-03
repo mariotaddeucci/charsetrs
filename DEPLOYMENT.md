@@ -145,7 +145,7 @@ If publishing fails:
 ### Platform-Specific Issues
 
 - **Linux ARM64**: Uses QEMU emulation; builds may be slower
-- **Windows ARM64**: Requires Windows on ARM runners (may need adjustment)
+- **Windows ARM64**: Uses cross-compilation with maturin
 - **macOS Universal2**: Currently builds separate x86_64 and aarch64 wheels
 
 ## Security

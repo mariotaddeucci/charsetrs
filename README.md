@@ -53,26 +53,40 @@ charsetrs.normalize(
 
 ### Working with Large Files
 
-The library uses streaming to efficiently handle files of any size with constant memory usage (~56KB):
+The library uses streaming with strategic sampling to efficiently handle files of any size with constant memory usage (~56KB):
 
 ```python
 import charsetrs
 
-# Use only 512KB for detection (faster, less memory)
-result = charsetrs.analyse("large_file.txt", max_sample_size=512*1024)
+# Default sampling: 10% of file with 1MB minimum
+result = charsetrs.analyse("large_file.txt")
 
-# Use 2MB for detection (more accurate)
+# Use only 5% of file for faster detection
+result = charsetrs.analyse("large_file.txt", percentage_sample_size=0.05)
+
+# Cap maximum sample size to 2MB
 result = charsetrs.analyse("large_file.txt", max_sample_size=2*1024*1024)
 
-# Normalize large file with custom sample size
+# Adjust minimum sample size for better accuracy on smaller files
+result = charsetrs.analyse("medium_file.txt", min_sample_size=512*1024)
+
+# Normalize large file with custom sampling
 # Memory usage: ~56KB regardless of file size (10GB+ files supported)
 charsetrs.normalize(
     "large_file.txt",
     encoding="utf-8",
     newlines="LF",
-    max_sample_size=1024*1024
+    percentage_sample_size=0.05,
+    max_sample_size=2*1024*1024
 )
 ```
+
+**Strategic Sampling:**
+- Reads 35% from the beginning of the file
+- Reads 15% from the end of the file
+- Reads 50% distributed in chunks throughout the middle
+- Never loads the entire file into memory
+- Ideal for 10GB+ files on 512MB RAM systems
 
 ### Newline Normalization
 
@@ -105,25 +119,39 @@ charsetrs.normalize("file.txt", encoding="utf-8", newlines="CR")
 
 ## API Reference
 
-### `charsetrs.analyse(file_path, max_sample_size=None)`
+### `charsetrs.analyse(file_path, min_sample_size=1024*1024, percentage_sample_size=0.1, max_sample_size=None)`
 
-Analyse the encoding and newline style of a file.
+Analyse the encoding and newline style of a file using strategic sampling.
 
 **Parameters:**
 - `file_path` (str or Path): Path to the file
-- `max_sample_size` (int, optional): Maximum bytes to read for detection (default: 1MB)
+- `min_sample_size` (int, optional): Minimum bytes to sample. Default: 1MB (1024*1024). For files smaller than this, the entire file is sampled.
+- `percentage_sample_size` (float, optional): Percentage of file to sample (0.0 to 1.0). Default: 0.1 (10% of file).
+- `max_sample_size` (int, optional): Maximum bytes to sample. Default: None (no limit). Use to cap memory usage for very large files.
 
 **Returns:**
 - `AnalysisResult`: Object with `encoding` and `newlines` attributes
+
+**Sampling Strategy:**
+The function reads samples strategically from the file without loading it entirely:
+- 35% from the beginning of the file
+- 15% from the end of the file
+- 50% distributed uniformly in chunks throughout the middle
 
 **Example:**
 ```python
 result = charsetrs.analyse("file.txt")
 print(result.encoding)  # 'utf_8'
 print(result.newlines)  # 'LF'
+
+# Custom sampling for large files
+result = charsetrs.analyse("large.txt", 
+                          min_sample_size=2*1024*1024,
+                          percentage_sample_size=0.05,
+                          max_sample_size=10*1024*1024)
 ```
 
-### `charsetrs.normalize(file_path, encoding="utf-8", newlines="LF", max_sample_size=None)`
+### `charsetrs.normalize(file_path, encoding="utf-8", newlines="LF", min_sample_size=1024*1024, percentage_sample_size=0.1, max_sample_size=None)`
 
 Normalize a file by converting its encoding and newline style in-place using streaming.
 
@@ -133,7 +161,9 @@ This function modifies the file in-place with constant memory usage (~56KB), mak
 - `file_path` (str or Path): Path to the file to normalize
 - `encoding` (str, optional): Target encoding (default: 'utf-8')
 - `newlines` (str, optional): Target newline style - 'LF', 'CRLF', or 'CR' (default: 'LF')
-- `max_sample_size` (int, optional): Maximum bytes to read for detection (default: 1MB)
+- `min_sample_size` (int, optional): Minimum bytes to sample. Default: 1MB.
+- `percentage_sample_size` (float, optional): Percentage of file to sample. Default: 0.1 (10%).
+- `max_sample_size` (int, optional): Maximum bytes to sample. Default: None.
 
 **Raises:**
 - `ValueError`: If encoding conversion fails or invalid newlines value
@@ -218,12 +248,13 @@ uv run task lint_rust
 
 ## Performance
 
-The library uses streaming to efficiently handle large files:
+The library uses streaming with strategic sampling to efficiently handle large files:
 - **Constant memory usage**: ~56KB regardless of file size
 - **Suitable for large files**: Process 10GB+ files on 512MB RAM systems
-- **Default detection**: Reads 1MB sample for encoding detection
-- **Configurable**: Adjust `max_sample_size` based on your needs
-- **Single-pass processing**: Linear time complexity O(n)
+- **Smart sampling**: Reads from beginning (35%), end (15%), and middle (50% distributed)
+- **Default detection**: Samples 10% of file with 1MB minimum
+- **Configurable**: Adjust `min_sample_size`, `percentage_sample_size`, and `max_sample_size` based on your needs
+- **Single-pass processing**: Linear time complexity O(n) for normalization
 
 For more details, see [MEMORY_EFFICIENCY.md](MEMORY_EFFICIENCY.md)
 
